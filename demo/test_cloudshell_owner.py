@@ -1,6 +1,6 @@
 import unittest
-from cloudshell_owner import (ALL,NODES,PREFIX,NETWORK,ZONE,LABELS,instance_args,validate_instance,
-                              startup_script,validator_installer,CONTROL_INSTALLER)
+from cloudshell_owner import (ALL,NODES,PREFIX,NETWORK,SUBNET,CIDR,REGION,ZONE,LABELS,instance_args,validate_instance,
+                              startup_script,validator_installer,CONTROL_INSTALLER,validate_network_recovery)
 
 
 class OwnerScopeTests(unittest.TestCase):
@@ -35,6 +35,17 @@ class OwnerScopeTests(unittest.TestCase):
             self.assertIn('warden-lease.service',user_script)
         self.assertIn('--on-active=600s',startup_script('validator'))
         self.assertIn('ExecStopPost=+/sbin/shutdown -h now',CONTROL_INSTALLER)
+
+    def test_network_only_recovery_preserves_exact_subnet_and_rejects_scope_changes(self):
+        networks=[{'name':NETWORK,'autoCreateSubnetworks':False}]
+        subnet={'name':SUBNET,'network':'networks/'+NETWORK,'region':'regions/'+REGION,'ipCidrRange':CIDR}
+        self.assertFalse(validate_network_recovery(networks,[],[],[],[]))
+        self.assertTrue(validate_network_recovery(networks,[subnet],[],[],[]))
+        with self.assertRaises(RuntimeError):validate_network_recovery(networks,[{**subnet,'ipCidrRange':'10.1.0.0/24'}],[],[],[])
+        with self.assertRaises(RuntimeError):validate_network_recovery(networks,[subnet],[],[{'name':PREFIX+'-v1'}],[])
+        with self.assertRaises(RuntimeError):validate_network_recovery(networks,[subnet],[],[],[{'name':PREFIX+'-v1'}])
+        with self.assertRaises(RuntimeError):validate_network_recovery(networks,[subnet],[{'name':'not-lab','network':'networks/'+NETWORK}],[],[])
+        with self.assertRaises(RuntimeError):validate_network_recovery([{**networks[0],'peerings':[{}]}],[subnet],[],[],[])
 
 
 if __name__=='__main__':unittest.main()

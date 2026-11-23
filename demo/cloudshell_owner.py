@@ -278,34 +278,80 @@ def prepare(runtime):
     print('Private deployment bundles prepared. Never share this runtime, its archives or root/custody/node keys.')
 
 
-def create_infrastructure(runtime):
-    gc('compute','networks','create',NETWORK,'--subnet-mode=custom')
-    gc('compute','networks','subnets','create',SUBNET,f'--network={NETWORK}',f'--region={REGION}',f'--range={CIDR}')
+def validate_network_recovery(networks,subnets,firewalls,instances,disks):
+    """Resume only an interrupted network/subnet operation, before any VM or disk creation."""
+    exact=[n for n in networks if n.get('name')==NETWORK]
+    if len(exact)!=1 or exact[0].get('autoCreateSubnetworks') is not False or exact[0].get('peerings'):
+        raise RuntimeError('Interrupted lab VPC was not uniquely found as a custom, unpeered network')
+    if any(str(x.get('name','')).startswith(PREFIX) for group in (instances,disks,firewalls) for x in group):
+        raise RuntimeError('Network-only recovery refuses any existing lab VM, disk or firewall')
+    if any(str(x.get('network','')).endswith('/'+NETWORK) for x in firewalls):
+        raise RuntimeError('Network-only recovery refuses unexpected existing firewall rules on the lab VPC')
+    if any(str(nic.get('network','')).endswith('/'+NETWORK) for vm in instances for nic in vm.get('networkInterfaces',[])):
+        raise RuntimeError('Network-only recovery refuses a VPC already used by a VM')
+    attached=[x for x in subnets if str(x.get('network','')).endswith('/'+NETWORK)]
+    if any(str(x.get('name','')).startswith(PREFIX) and x not in attached for x in subnets):
+        raise RuntimeError('Unexpected lab subnet in another network')
+    if len(attached)>1:raise RuntimeError('Network-only recovery refuses multiple existing lab subnets')
+    if attached:
+        subnet=attached[0]
+        if (subnet.get('name')!=SUBNET or subnet.get('ipCidrRange')!=CIDR or
+            not subnet.get('region','').endswith('/'+REGION) or subnet.get('purpose','PRIVATE')!='PRIVATE'):
+            raise RuntimeError('Existing lab subnet differs from the exact authorised plan')
+    return bool(attached)
+
+
+def recover_network():
+    return validate_network_recovery(gcjson('compute','networks','list') or [],gcjson('compute','networks','subnets','list') or [],
+                                     gcjson('compute','firewall-rules','list') or [],gcjson('compute','instances','list') or [],
+                                     gcjson('compute','disks','list') or [])
+
+
+def progress(message):print('[Warden P0] '+message,flush=True)
+
+
+def create_infrastructure(runtime,resume_network=False):
+    subnet_present=False
+    if resume_network:
+        progress('Checking the exact interrupted custom VPC; no prior VM/disk may exist.')
+        subnet_present=recover_network();progress('Existing isolated VPC verified; preserving it.')
+    else:
+        progress('Creating dedicated custom VPC (can take a few minutes).')
+        gc('compute','networks','create',NETWORK,'--subnet-mode=custom',timeout=300)
+    if not subnet_present:
+        progress('Creating the private subnet (wait for Google Cloud to finish).')
+        gc('compute','networks','subnets','create',SUBNET,f'--network={NETWORK}',f'--region={REGION}',f'--range={CIDR}',timeout=300)
+    else:progress('Previously created subnet matches the plan; preserving it.')
     # Every rule is within the dedicated new VPC. No ingress from the public internet.
+    progress('Creating the three narrowly scoped IAP/P2P/control firewall rules.')
     f=['compute','firewall-rules','create']
     common=[f'--network={NETWORK}','--direction=INGRESS','--action=ALLOW']
     gc(*f,PREFIX+'-iap',*common,'--rules=tcp:22','--source-ranges=35.235.240.0/20',f'--target-tags={PREFIX}')
     gc(*f,PREFIX+'-peer',*common,'--rules=tcp:30303,udp:30303',f'--source-tags={PREFIX}-validator',f'--target-tags={PREFIX}-validator')
     gc(*f,PREFIX+'-control',*common,'--rules=tcp:8545,tcp:8890',f'--source-tags={PREFIX}-control',f'--target-tags={PREFIX}-validator')
+    progress('Creating exactly five isolated VMs and retained boot disks; allow several minutes.')
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
         jobs=[pool.submit(gc,*instance_args(n,runtime/f'startup-{n[3]}.sh'),timeout=300) for n in ALL]
         for job in jobs:job.result()
-    status()
+    status();progress('Five exact lab VM configurations validated.')
 
 
 def configure(node,runtime):
     name=node[0];deadline=time.monotonic()+240
+    progress(f'Waiting for bounded startup of {name}.')
     while time.monotonic()<deadline:
         try:
             if ssh(name,'test -f /var/lib/warden-p0-ready',timeout=35,check=False).returncode==0:break
         except subprocess.TimeoutExpired:pass
         time.sleep(8)
     else:raise RuntimeError(f'{name} did not finish its bounded bootstrap')
+    progress(f'Installing private bundle on {name} via IAP.')
     ssh(name,'umask 077; mkdir -m 700 -p "$HOME/warden-p0-staging"; sudo systemctl restart warden-bootstrap-guard.timer')
     scp(runtime/'bundles'/(name+'.tar.gz'),name,'~/warden-p0-staging/bundle.tar.gz')
     ssh(name,'sudo install -d -m 700 /var/lib/warden-p0-staging && sudo tar -xzf "$HOME/warden-p0-staging/bundle.tar.gz" -C /var/lib/warden-p0-staging && sudo bash /var/lib/warden-p0-staging/install.sh',timeout=420)
     # Remove only the two exact temporary transfer locations created by this workflow.
     ssh(name,'set -e; sudo test ! -L /var/lib/warden-p0-staging; test "$(sudo readlink -f /var/lib/warden-p0-staging)" = /var/lib/warden-p0-staging; sudo find /var/lib/warden-p0-staging -depth -mindepth 1 -delete; sudo rmdir /var/lib/warden-p0-staging; rm -f "$HOME/warden-p0-staging/bundle.tar.gz"',timeout=60)
+    progress(f'{name} installation completed.')
 
 
 def cloud_verify(anchor=False):
@@ -331,18 +377,23 @@ def cloud_verify(anchor=False):
     return result
 
 
-def apply(runtime,credit_brl):
+def apply(runtime,credit_brl,resume_network=False):
     owner_project();runtime=Path(runtime).resolve();meta=json.loads((runtime/'prepared.json').read_text())
     if meta!={'project':PROJECT,'zone':ZONE,'image':IMAGE,'scope':PREFIX,'prepared':True}:raise ValueError('Prepared runtime does not match exact lab scope')
     inv=inventory()
-    if inv['lab_name_collisions']:raise RuntimeError('Lab resource name collision; use status and inspect, never overwrite or recreate existing resources')
+    if resume_network:
+        if NETWORK not in inv['lab_name_collisions'] or any(x not in (NETWORK,SUBNET) for x in inv['lab_name_collisions']):
+            raise RuntimeError('Network-only recovery accepts only the exact interrupted VPC/subnet; unexpected resources require review')
+        recover_network()
+    elif inv['lab_name_collisions']:raise RuntimeError('Lab resource name collision; use status and inspect, never overwrite or recreate existing resources')
     if not inv['required_apis_present']:raise RuntimeError('Compute or IAP API is not enabled; owner must review before project-level changes')
     if not math.isfinite(credit_brl) or credit_brl<350:raise RuntimeError('Owner must verify at least R$350 remaining credit for this conservative bounded demo allocation')
     try:
-        create_infrastructure(runtime)
+        create_infrastructure(runtime,resume_network)
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
             jobs=[pool.submit(configure,node,runtime) for node in ALL]
             for job in jobs:job.result()
+        progress('Verifying actual four-node consensus, two HTTPS sites and audit anchoring now.')
         result=cloud_verify(anchor=True)
         write(runtime/'live-acceptance.json',json.dumps(result,indent=2));return result
     except BaseException:
@@ -378,11 +429,13 @@ def main():
     sub.add_parser('plan');sub.add_parser('status');sub.add_parser('start');sub.add_parser('stop');sub.add_parser('verify')
     p=sub.add_parser('prepare');p.add_argument('--runtime',required=True)
     p=sub.add_parser('apply');p.add_argument('--runtime',required=True);p.add_argument('--credit-brl',type=float,required=True)
+    p=sub.add_parser('resume-network');p.add_argument('--runtime',required=True);p.add_argument('--credit-brl',type=float,required=True)
     p=sub.add_parser('idle-gate');p.add_argument('--runtime',required=True)
     args=parser.parse_args()
     if args.cmd=='plan':print(json.dumps(plan(),indent=2))
     elif args.cmd=='prepare':prepare(args.runtime)
     elif args.cmd=='apply':print(json.dumps(apply(args.runtime,args.credit_brl),indent=2))
+    elif args.cmd=='resume-network':print(json.dumps(apply(args.runtime,args.credit_brl,True),indent=2))
     elif args.cmd=='status':print(json.dumps(status(require_all=False),indent=2))
     elif args.cmd in ('start','stop'):print(json.dumps(change_state(args.cmd),indent=2))
     elif args.cmd=='verify':print(json.dumps(cloud_verify(),indent=2))

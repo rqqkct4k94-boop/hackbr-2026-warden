@@ -35,6 +35,12 @@ python cloudshell_owner.py apply --runtime "$PWD/../../warden-hackbr-p0-private"
 
 `apply` creates one private custom VPC and subnet with no peering, four separate 4 GiB `e2-medium` validators and one 2 GiB `e2-small` control/HTTPS VM. Every guest has a retained 20 GiB persistent boot disk, no attached service account or OAuth scopes, and deletion protection. Only IAP SSH is allowed from Google's IAP range; validator P2P is internal and RPC plus lease traffic is allowed only from the control host. Ephemeral external addresses permit package/image downloads, **not public service ingress**. No public CA claim or external blockchain.
 
+If a prior apply was interrupted specifically during network/subnet creation, before any VM, disk or firewall was created, the narrow `resume-network` recovery command validates the exact custom unpeered VPC and its optional matching subnet, then continues without recreating either or regenerating keys. It refuses unexpected resources, existing lab disks, VMs or firewall rules. Never use this recovery path after a later-stage failure. Progress messages appear before each cloud operation; wait for the operation to finish rather than interrupting.
+
+```bash
+python cloudshell_owner.py resume-network --runtime "$PWD/../../warden-hackbr-p0-private" --credit-brl 350
+```
+
 At the verified US-central list rates, compute is approximately US$0.151/hour while all five are running (about US$25.33 for seven days continuous use), excluding disk, ephemeral addresses, egress and exchange rates. Stopped persistent disk costs continue. The owner must keep the verified credit ceiling; there is no billing-account upgrade. [Google pricing](https://cloud.google.com/products/compute/pricing/general-purpose). [IAP SSH](https://docs.cloud.google.com/iap/docs/using-tcp-forwarding). [Guest shutdown](https://docs.cloud.google.com/compute/docs/instances/stop-start-instance).
 
 ## Owner demo and evidence
