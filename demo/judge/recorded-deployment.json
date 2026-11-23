@@ -1,0 +1,41 @@
+{
+  "date_utc": "2026-11-23T16:04:25.656284Z",
+  "scope": "Royalcrafter Warden HackBR 2026 synthetic read-only verifier; isolated Free-plan Worker",
+  "worker": "hackbr-2026-warden-p0",
+  "source_commit": "5d44b70d360232c7cee033b1bb2a47769a17db56",
+  "deployment_etag": "e7f6529700aaab074f84ac4dabdbf31f2cae38b14c049c2ed954bb6ac5c186f6",
+  "public_url": "https://hackbr-2026-warden-p0.royalcrafter.workers.dev/",
+  "provider_verified": {
+    "worker_enabled": true,
+    "preview_urls_enabled": false,
+    "bindings": 0,
+    "compatibility_date": "2025-08-01"
+  },
+  "anonymous_browser_checks": {
+    "portal_loaded": true,
+    "recorded_cloud_metrics_rendered": true,
+    "genuine_sample_verified": true,
+    "tampered_sample_rejected": true,
+    "verified_operations": 2,
+    "recorded_denials": 2,
+    "sample_certificates": 2
+  },
+  "go_daddy_alias": {
+    "hostname": "hackbr-warden.gridster.cloud",
+    "rule": "temporary HTTPS forwarding (302)",
+    "destination": "https://hackbr-2026-warden-p0.royalcrafter.workers.dev/",
+    "configuration_observed_saved": true,
+    "public_https_verified": false,
+    "initial_public_check": "connection timed out; provider SSL/DNS activation pending",
+    "existing_domain_nameservers_unchanged": true,
+    "dns_inventory_before": 8,
+    "dns_inventory_after": 10,
+    "all_8_previous_records_preserved": true,
+    "new_records": ["A hackbr-warden", "A hackbr-warden"]
+  },
+  "limitations": [
+    "Public sample cryptographic evidence is distinct from recorded actual GCP evidence.",
+    "The browser verifier has no private network, RPC or CA access and is not a live GCP availability indicator.",
+    "The live lifecycle post-restart acceptance report is still pending confirmation."
+  ]
+}

@@ -53,7 +53,7 @@ At the verified US-central list rates, compute is approximately US$0.151/hour wh
 
 If and only if apply succeeds, expect a JSON report with a real four-validator block, two independently verified TLS fingerprints, public audit verification, and a matching audit anchor receipt on all four validators. The initial PKI ceremony runs in the isolated Cloud Shell process with separate signing processes; distinct custody packages are also placed in three dedicated validator hosts and not copied to the control runtime. This is not independent human custody or a certified HSM. The independent hosts must later exercise the real approval workflow before making that stronger claim. The owner retains control of all VMs and the original synthetic ceremony staging directory.
 
-For administration and viewing, run a standard IAP tunnel in Cloud Shell and use **Web Preview → Preview on port 8080**. The dashboard itself stays loopback-only on the control VM. This is owner-only, not yet a public judge URL.
+For administration and viewing, run a standard IAP tunnel in Cloud Shell and use **Web Preview → Preview on port 8080**. The dashboard itself stays loopback-only on the control VM. This is owner-only, separate from the tested [public judge verifier](https://hackbr-2026-warden-p0.royalcrafter.workers.dev/).
 
 ```bash
 gcloud compute ssh hackbr-warden-p0-control --project="$WARDEN_DEMO_PROJECT" --zone=us-central1-a --tunnel-through-iap -- -N -L 8080:127.0.0.1:8080
@@ -76,7 +76,7 @@ python cloudshell_owner.py verify
 python cloudshell_owner.py stop
 ```
 
-`start` and `stop` refuse any instance with unexpected labels, network, machine type, tags, disk policy or attached service account. On stopping, disks are retained. No final deletion is performed. Do not start all five merely to perform periodic health checks. A public judge-facing HTTPS link must be separately designed and authorised; this protected IAP interface is not that link.
+`start` and `stop` refuse any instance with unexpected labels, network, machine type, tags, disk policy or attached service account. On stopping, disks are retained. No final deletion is performed. Do not start all five merely to perform periodic health checks. The public judge verifier is hosted separately and needs no running GCP VM; this protected IAP interface is not its public link.
 
 After the lifecycle gate finishes (never during its ten-minute idle interval), the owner can run a separate read-only three-guest custodian presence check while the lab is running:
 
