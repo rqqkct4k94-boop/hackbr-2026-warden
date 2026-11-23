@@ -11,9 +11,13 @@ async function cloud(){try{const wrapper=await load('/cloud-report.json');const 
   $('cloud-anchor').textContent=r.anchor.transaction_hash+' · hash de auditoria '+r.anchor.audit_head;
 }catch(e){$('cloud-metrics').replaceChildren(el('div','Relatório indisponível: '+e.message,'card bad'));}}
 async function sample(tamper=false){const status=$('sample-status');const results=$('sample-results');results.replaceChildren();status.textContent='Verificando localmente…';status.className='status';
-  try{const [evidence,pins]=await Promise.all([load('/proof.json'),load('/pins.json')]);if(tamper){evidence.events.at(-1).payload.result.fingerprint='0'.repeat(64);}
-    const result=await verifyProof(evidence,pins);if(tamper){status.textContent='FALHA DO VERIFICADOR — alteração não detectada';status.className='status bad';return;}render(result,status,results);
-  }catch(e){status.textContent=tamper?'ALTERAÇÃO DETECTADA — '+e.message:'Falha na verificação — '+e.message;status.className='status bad';}}
+  try{const [evidence,pins]=await Promise.all([load('/proof.json'),load('/pins.json')]);
+    const result=await verifyProof(evidence,pins);
+    if(tamper){const changed=structuredClone(evidence);changed.events.at(-1).payload.result.fingerprint='0'.repeat(64);
+      try{await verifyProof(changed,pins);status.textContent='FALHA DO VERIFICADOR — alteração não detectada';status.className='status bad';}
+      catch(e){status.textContent='ALTERAÇÃO DETECTADA — '+e.message;status.className='status ok';}return;}
+    render(result,status,results);
+  }catch(e){status.textContent='Falha na verificação da amostra original — '+e.message;status.className='status bad';}}
 function render(v,status,results){status.textContent='PROVA VERIFICADA — assinaturas e integridade válidas.';status.className='status ok';
   results.replaceChildren(step('01','Raiz e manifesto fixados','Fingerprint e assinatura da raiz válidos',true),step('02','Autorizações de custódia',v.authorized+' operações com três assinaturas distintas; '+v.denied+' negações registradas',true),step('03','Certificados X.509',v.certificates.length+' emitidos, '+v.revoked+' revogados; assinatura, CSR e hostname verificáveis',true),add(el('div',undefined,'card'),el('strong','Cabeça do histórico'),el('p',v.head,'hash')));}
 $('verify-sample').onclick=()=>sample();$('tamper').onclick=()=>sample(true);
