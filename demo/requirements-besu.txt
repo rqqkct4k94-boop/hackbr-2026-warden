@@ -1,0 +1,3 @@
+# Optional Besu anchor signer; install on the isolated lab host, not production.
+eth-account>=0.13,<0.14
+
