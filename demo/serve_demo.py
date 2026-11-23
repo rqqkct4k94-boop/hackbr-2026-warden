@@ -171,12 +171,12 @@ class DashboardHandler(QuietHandler):
         finally: self.server.lease.end_operation()
 
 
-def serve(runtime, dashboard_port, site_a_port, site_b_port, idle_seconds=600):
+def serve(runtime, dashboard_port, site_a_port, site_b_port, idle_seconds=600, lease=None):
     runtime=Path(runtime).resolve(); manifest=read_json(runtime/'manifest.json'); pins=read_json(runtime/'pins.json')
     if manifest['root_fingerprint']!=pins['root'] or digest(canonical(manifest))!=pins['manifest']:
         raise SystemExit('Runtime trust pins differ')
     if idle_seconds < 1: raise ValueError('Idle timeout must be positive')
-    servers=[];threads=[];started=[];lease=ActivityLease(idle_seconds=idle_seconds)
+    servers=[];threads=[];started=[];lease=lease or ActivityLease(idle_seconds=idle_seconds)
     try:
         for i,(hostname,port) in enumerate(zip(HOSTS,(site_a_port,site_b_port))):
             s=http.server.ThreadingHTTPServer(('127.0.0.1',port),SiteHandler);s.site=hostname;s.lease=lease

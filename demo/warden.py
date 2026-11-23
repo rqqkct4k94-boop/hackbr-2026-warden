@@ -505,4 +505,10 @@ class ActivityLease:
         with self._lock:
             return self.active_operations == 0 and self.clock() - self.last_activity >= self.idle_seconds
 
+    def remaining_seconds(self):
+        with self._lock:
+            if self.active_operations:
+                return self.idle_seconds
+            return max(0.0, self.idle_seconds - (self.clock() - self.last_activity))
+
 

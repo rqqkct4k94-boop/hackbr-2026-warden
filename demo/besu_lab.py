@@ -95,17 +95,31 @@ def prepare(runtime,image):
     print('Generated four validator identities and compose plan. Start only this lab with docker compose -f compose.json up -d.')
 
 
-def rpc(port,method,params=None):
+def rpc_at(port,method,params=None,host='127.0.0.1',remote_port=None):
     if port not in PORTS:raise ValueError('Only the four designated loopback lab RPC ports are allowed')
+    if host!='127.0.0.1' and host not in tuple(f'10.88.24.{n}' for n in range(11,15)):
+        raise ValueError('Only designated Warden lab private addresses are allowed')
+    if host!='127.0.0.1' and remote_port!=8545:raise ValueError('Private validator RPC must use designated port 8545')
     data=canonical({'jsonrpc':'2.0','id':1,'method':method,'params':params or []})
     opener=build_opener(ProxyHandler({}))
-    with opener.open(Request(f'http://127.0.0.1:{port}',data=data,headers={'Content-Type':'application/json'}),timeout=5) as response:
+    with opener.open(Request(f'http://{host}:{remote_port or port}',data=data,headers={'Content-Type':'application/json'}),timeout=5) as response:
         result=json.load(response)
     if 'error' in result:raise RuntimeError(f'Besu {method} failed at local node {port}')
     return result['result']
 
 
-def verify_network(manifest,rpc_call=rpc,wait=time.sleep):
+def rpc(port,method,params=None):return rpc_at(port,method,params)
+
+
+def rpc_for(manifest):
+    hosts=manifest.get('rpc_hosts')
+    if hosts is None:return rpc
+    if hosts!=[f'10.88.24.{n}' for n in range(11,15)]:raise ValueError('Unexpected private cloud lab endpoints')
+    return lambda port,method,params=None:rpc_at(port,method,params,hosts[PORTS.index(port)],8545)
+
+
+def verify_network(manifest,rpc_call=None,wait=time.sleep):
+    rpc_call=rpc_call or rpc_for(manifest)
     expected={v.lower() for v in manifest['validators']}
     if manifest['chain_id']!=CHAIN_ID or len(expected)!=4:raise ValueError('Unexpected lab manifest')
     infos=[]
@@ -134,28 +148,41 @@ def anchor(runtime,evidence_path,pins_path):
     evidence=json.loads(Path(evidence_path).read_text());proof=verify_evidence(evidence['manifest'],evidence['events'],pins['root'],pins['manifest'])
     out=runtime/f'anchor-{proof["head"]}.json';intent=runtime/f'anchor-intent-{proof["head"]}.json'
     if out.exists() or intent.exists():raise RuntimeError('Existing anchor evidence or intent; verify existing receipt before any retry')
-    network=verify_network(manifest); account=Account.from_key((runtime/'anchor.key').read_bytes())
+    call=rpc_for(manifest);network=verify_network(manifest,call); account=Account.from_key((runtime/'anchor.key').read_bytes())
     if account.address.lower()!=manifest['anchor'].lower():raise RuntimeError('Anchor signer does not match the isolated genesis allocation')
-    payload='0x'+(PREFIX+bytes.fromhex(proof['head'])).hex();nonce=int(rpc(PORTS[0],'eth_getTransactionCount',[account.address,'pending']),16)
-    gas_price=int(rpc(PORTS[0],'eth_gasPrice'),16)
+    payload='0x'+(PREFIX+bytes.fromhex(proof['head'])).hex();nonce=int(call(PORTS[0],'eth_getTransactionCount',[account.address,'pending']),16)
+    gas_price=int(call(PORTS[0],'eth_gasPrice'),16)
     tx={'chainId':CHAIN_ID,'nonce':nonce,'to':account.address,'value':0,'data':payload,'gas':40000,'gasPrice':gas_price}
     signed=account.sign_transaction(tx);expected_hash='0x'+bytes(signed.hash).hex()
     with intent.open('x',encoding='ascii') as f:json.dump({'audit_head':proof['head'],'transaction_hash':expected_hash,'chain_id':CHAIN_ID},f)
-    tx_hash=rpc(PORTS[0],'eth_sendRawTransaction',['0x'+bytes(signed.raw_transaction).hex()])
+    tx_hash=call(PORTS[0],'eth_sendRawTransaction',['0x'+bytes(signed.raw_transaction).hex()])
     if tx_hash.lower()!=expected_hash.lower():raise RuntimeError('Transaction hash differed from signed intent')
     deadline=time.monotonic()+45;receipts=None
     while time.monotonic()<deadline:
-        receipts=[rpc(port,'eth_getTransactionReceipt',[tx_hash]) for port in PORTS]
+        receipts=[call(port,'eth_getTransactionReceipt',[tx_hash]) for port in PORTS]
         if all(receipts):break
         time.sleep(2)
     if not receipts or not all(receipts):raise RuntimeError('Anchor was not confirmed by all four validators; do not claim success')
     if any(r['status']!='0x1' for r in receipts) or len({r['blockHash'] for r in receipts})!=1:raise RuntimeError('Anchor receipts disagree or failed')
     for port in PORTS:
-        tx_found=rpc(port,'eth_getTransactionByHash',[tx_hash])
+        tx_found=call(port,'eth_getTransactionByHash',[tx_hash])
         if tx_found['input'].lower()!=payload.lower() or tx_found['from'].lower()!=account.address.lower():raise RuntimeError('Ledger payload or signer mismatch')
     result={'verified':True,'audit_head':proof['head'],'transaction_hash':tx_hash,'block_hash':receipts[0]['blockHash'],'network':network,'receipts':4}
     with out.open('x',encoding='ascii') as f:json.dump(result,f,indent=2)
     return result
+
+
+def verify_receipt(runtime,receipt_path):
+    runtime=Path(runtime).resolve();manifest=json.loads((runtime/'network-manifest.json').read_text())
+    saved=json.loads(Path(receipt_path).read_text());call=rpc_for(manifest);tx_hash=saved['transaction_hash']
+    expected='0x'+(PREFIX+bytes.fromhex(saved['audit_head'])).hex()
+    verify_network(manifest,call)
+    for port in PORTS:
+        tx=call(port,'eth_getTransactionByHash',[tx_hash]);receipt=call(port,'eth_getTransactionReceipt',[tx_hash])
+        if (not tx or not receipt or tx['input'].lower()!=expected.lower() or tx['from'].lower()!=manifest['anchor'].lower()
+                or receipt['status']!='0x1' or receipt['blockHash']!=saved['block_hash']):
+            raise RuntimeError('Persisted audit anchor was not verified on every validator')
+    return {'verified':True,'audit_head':saved['audit_head'],'transaction_hash':tx_hash,'block_hash':saved['block_hash'],'receipts':4}
 
 
 def main():
@@ -163,10 +190,12 @@ def main():
     p=sub.add_parser('prepare');p.add_argument('--runtime',required=True);p.add_argument('--image',required=True)
     p=sub.add_parser('verify');p.add_argument('--runtime',required=True)
     p=sub.add_parser('anchor');p.add_argument('--runtime',required=True);p.add_argument('--evidence',required=True);p.add_argument('--pins',required=True)
+    p=sub.add_parser('verify-receipt');p.add_argument('--runtime',required=True);p.add_argument('--receipt',required=True)
     args=parser.parse_args()
     if args.command=='prepare': prepare(args.runtime,args.image)
     elif args.command=='verify': print(json.dumps(verify_network(json.loads((Path(args.runtime)/'network-manifest.json').read_text())),indent=2))
-    else:print(json.dumps(anchor(args.runtime,args.evidence,args.pins),indent=2))
+    elif args.command=='anchor':print(json.dumps(anchor(args.runtime,args.evidence,args.pins),indent=2))
+    else:print(json.dumps(verify_receipt(args.runtime,args.receipt),indent=2))
 
 
 if __name__=='__main__': main()

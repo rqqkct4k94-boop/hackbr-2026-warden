@@ -1,5 +1,5 @@
 import unittest
-from besu_lab import build_compose, genesis_input, verify_network, image_pin, CHAIN_ID, PORTS
+from besu_lab import build_compose, genesis_input, verify_network, image_pin, rpc_for, CHAIN_ID, PORTS
 
 
 class OfflineConfigTests(unittest.TestCase):
@@ -11,6 +11,7 @@ class OfflineConfigTests(unittest.TestCase):
             self.assertNotIn('*',' '.join(svc['command']));self.assertIn('--rpc-http-api=ETH,NET,QBFT',svc['command'])
         self.assertEqual(genesis_input('0x'+'1'*40)['blockchain']['nodes']['count'],4)
         with self.assertRaises(ValueError):image_pin('hyperledger/besu:latest')
+        with self.assertRaises(ValueError):rpc_for({'rpc_hosts':['192.0.2.1']*4})
 
     def test_verifier_logic_with_explicit_mock_rpc_fixture(self):
         vals=['0x'+f'{i:040x}' for i in range(1,5)]; heights={p:10 for p in PORTS}
