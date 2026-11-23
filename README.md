@@ -8,6 +8,7 @@ Warden é um protótipo de módulo de segurança definido por software (SDSM) pa
 
 ## Experimente agora
 
+- **[Console Warden SDSM](https://hackbr-2026-warden-p0.royalcrafter.workers.dev/console)** — organização fictícia FAROL-26, sete áreas de controle, prova PKI interativa, ensaio de autorização 3/3 e sandbox opcional somente leitura. Não exige cadastro, não recebe credenciais de nuvem e não realiza operações nos KMS.
 - **[Portal público de avaliação](https://hackbr-2026-warden-p0.royalcrafter.workers.dev/)** — abra sem login, selecione *Verificar amostra* e depois *Testar alteração local*. A primeira ação valida a prova; a segunda demonstra a rejeição de uma amostra modificada.
 - [Relatório registrado do laboratório GCP](demo/judge/recorded-cloud.json) — quatro validadores Besu/QBFT com três pares cada, duas conexões HTTPS com certificados distintos, sete eventos de auditoria, duas operações autorizadas e uma âncora confirmada por quatro recibos.
 - [Prova e limites de segurança](demo/P0.md) — arquitetura, reprodução, testes e distinção entre evidência registrada em nuvem e a cerimônia local usada no verificador.
@@ -27,7 +28,7 @@ Warden é um protótipo de módulo de segurança definido por software (SDSM) pa
 
 ## Reproduzir
 
-O código foi criado para esta competição. [Execução CI independente](https://github.com/rqqkct4k94-boop/hackbr-2026-warden/actions/runs/45229171713): 22 testes Python e 6 testes do verificador JavaScript passaram em checkout limpo, incluindo a construção do portal a partir do código. Essa execução não provisiona nem testa recursos ao vivo em GCP. As instruções completas de testes e os limites conhecidos estão em [demo/P0.md](demo/P0.md). A documentação de provisionamento isolado autorizado pelo proprietário está em [demo/CLOUD_SHELL.md](demo/CLOUD_SHELL.md).
+O código foi criado para esta competição. [Execução CI independente](https://github.com/rqqkct4k94-boop/hackbr-2026-warden/actions/runs/45231683625): 28 testes Python e 11 testes JavaScript passaram em checkout limpo, incluindo a construção do portal a partir do código. Essa execução não provisiona nem testa recursos ao vivo em GCP. As instruções completas de testes e os limites conhecidos estão em [demo/P0.md](demo/P0.md). A documentação de provisionamento isolado autorizado pelo proprietário está em [demo/CLOUD_SHELL.md](demo/CLOUD_SHELL.md).
 
 A solução usa Python, X.509, TLS, Hyperledger Besu e um verificador de evidência executado no navegador. O laboratório de nuvem e o portal público têm escopos separados. Não são usados dados pessoais reais de terceiros.
 

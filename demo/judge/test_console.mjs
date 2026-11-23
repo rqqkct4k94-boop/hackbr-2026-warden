@@ -14,6 +14,7 @@ test('public console is linked from stable root and has only read-only routes an
   assert.match(await route('/').text(),/href="\/console"/);
   const response=route('/console'),html=await response.text();assert.equal(response.status,200);
   assert.match(html,/FAROL-26/);assert.match(html,/console-verify-proof/);assert.match(html,/use-fixture-sandbox/);
+  assert.doesNotMatch(html,/desafio público de uso único/);assert.match(html,/desafio público de curta duração/);
   assert.doesNotMatch(html,/<script(?![^>]*\ssrc=)/);assert.doesNotMatch(html,/@@[A-Z_]+@@/);
   assert.match(response.headers.get('Content-Security-Policy'),/script-src 'self'/);
   assert.doesNotMatch(response.headers.get('Content-Security-Policy'),/script-src[^;]*unsafe-inline/);
