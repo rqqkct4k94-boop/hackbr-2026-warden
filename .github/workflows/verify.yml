@@ -36,4 +36,4 @@ jobs:
       - name: Build public verifier from source
         run: node judge/build.mjs
       - name: Test public browser verifier and read-only portal
-        run: node --test judge/test_verify.mjs judge/test_preview.mjs judge/test_console.mjs
+        run: node --test judge/test_verify.mjs judge/test_preview.mjs judge/test_console.mjs judge/test_cloud_gates.mjs
