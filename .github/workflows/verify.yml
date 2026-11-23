@@ -1,0 +1,37 @@
+name: Verify synthetic Warden evidence
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  proof-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    defaults:
+      run:
+        working-directory: demo
+    steps:
+      - name: Check out source (read-only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+          package-manager-cache: false
+      - name: Install declared laboratory dependency
+        run: python -m pip install -r requirements.txt
+      - name: Test synthetic PKI, TLS, approvals and offline scope guards
+        run: python -m unittest -v test_warden test_serve_demo test_besu_lab test_cloud_idle test_cloudshell_owner test_custody_presence
+      - name: Test public browser verifier and read-only portal
+        run: node --test judge/test_verify.mjs judge/test_preview.mjs
