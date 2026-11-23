@@ -1,0 +1,7 @@
+{
+  "root": "db975454d15d5d7337ce434acf7e5fd2d8dd2efe4e6a6bc2081533e0d5f771d5",
+  "manifest": "6e6e1c46e36638eb6faab66f7e21d66024141cfd005f995a07cde1ddd53c8559",
+  "audit_head": "6b294c119b2feb4fe99d9cc46f80613dd21f1fd73412fbcaaaf9fd7cd4bfa0e8",
+  "evidence_sha256": "d110b67a0946adf285b7ee878d3b6229f010ae20a18e0f47f606c1014f4188d5",
+  "scope": "synthetic local demonstration; no Besu ledger anchor yet"
+}

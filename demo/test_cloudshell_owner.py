@@ -1,9 +1,22 @@
 import unittest
+import subprocess
+from unittest.mock import patch
 from cloudshell_owner import (ALL,NODES,PREFIX,NETWORK,SUBNET,CIDR,REGION,ZONE,LABELS,instance_args,validate_instance,
-                              startup_script,validator_installer,CONTROL_INSTALLER,validate_network_recovery,validate_quota_recovery)
+                              startup_script,validator_installer,CONTROL_INSTALLER,validate_network_recovery,validate_quota_recovery,retry_live_read)
 
 
 class OwnerScopeTests(unittest.TestCase):
+    @patch('cloudshell_owner.time.sleep')
+    @patch('cloudshell_owner.ssh')
+    def test_live_read_retries_cloud_shell_timeout_and_fails_closed(self,ssh,sleep):
+        timeout=subprocess.TimeoutExpired('gcloud',45)
+        ssh.side_effect=[timeout,subprocess.CompletedProcess([],0,stdout='{"verified":true}')]
+        self.assertEqual(retry_live_read(ALL[-1][0],'read-only',attempts=2),{'verified':True})
+        self.assertEqual(ssh.call_count,2);sleep.assert_called_once_with(8)
+        ssh.side_effect=timeout
+        with self.assertRaisesRegex(RuntimeError,'did not pass'):
+            retry_live_read(ALL[-1][0],'read-only',attempts=2)
+
     def test_exact_bounded_vm_shapes_no_cloud_privileges(self):
         self.assertEqual(len(ALL),5);self.assertEqual(sum(x[2]=='e2-medium' for x in ALL),4)
         self.assertEqual(len({x[1] for x in ALL}),5)
@@ -73,4 +86,3 @@ class OwnerScopeTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
-

@@ -1,0 +1,133 @@
+{
+  "source": "Owner-supplied Cloud Shell live acceptance report, 2026-11-23, America/Sao_Paulo",
+  "verification_scope": "Script-reported live test results, not independently re-executed by Codex",
+  "script_commit": "d20ccfd85cf41468b2eba9bfede8c135e357d676",
+  "live_acceptance": {
+    "network": {
+      "verified": true,
+      "chain_id": 20261123,
+      "validators": [
+        "0x0def683ade22bca5cce32df4e92c75a5de58fb0d",
+        "0x21a95132f2c440737a6a80269dc71c525eb3af56",
+        "0x6b4298eeb92aa5b64870c9725ae3dc6ab43fb09b",
+        "0x900a70099f7fc27aa71bc8db486fa94c580851f1"
+      ],
+      "nodes": [
+        {
+          "port": 18545,
+          "initial_height": 9,
+          "peers": 3,
+          "genesis": "0x553a11ff4564faffc0b4634cebad7bf9ab225bef7587657265af4d20fb6b5936",
+          "height": 11
+        },
+        {
+          "port": 18546,
+          "initial_height": 9,
+          "peers": 3,
+          "genesis": "0x553a11ff4564faffc0b4634cebad7bf9ab225bef7587657265af4d20fb6b5936",
+          "height": 11
+        },
+        {
+          "port": 18547,
+          "initial_height": 9,
+          "peers": 3,
+          "genesis": "0x553a11ff4564faffc0b4634cebad7bf9ab225bef7587657265af4d20fb6b5936",
+          "height": 11
+        },
+        {
+          "port": 18548,
+          "initial_height": 9,
+          "peers": 3,
+          "genesis": "0x553a11ff4564faffc0b4634cebad7bf9ab225bef7587657265af4d20fb6b5936",
+          "height": 11
+        }
+      ],
+      "common_block": 11,
+      "block_hash": "0xfc961ef3c9a1f3df88408ae72526ad578ef90bf6c3af9ec9afaddecfd447a83f"
+    },
+    "tls": {
+      "verified": true,
+      "sites": [
+        {
+          "hostname": "alpha.warden-demo.invalid",
+          "port": 8443,
+          "fingerprint": "c3a8bf3c4e0c9bd4bc1fabb307baa892aaec2c109f3fcfd3f6985ce679e60bd9",
+          "tls": null,
+          "http_ok": true,
+          "matches_approved_certificate": true
+        },
+        {
+          "hostname": "beta.warden-demo.invalid",
+          "port": 8444,
+          "fingerprint": "f8f725deb5b2273fdae22bc9d5a01221e606c9fc090a69f2d74111e8042db2b4",
+          "tls": null,
+          "http_ok": true,
+          "matches_approved_certificate": true
+        }
+      ]
+    },
+    "audit": {
+      "verified": true,
+      "events": 7,
+      "authorized_operations": 2,
+      "head": "4f252581e762670e25f354953996bcc2c69f363ce3e5e15941bd2d6aca4210c9",
+      "certificates": 2,
+      "revoked": 0,
+      "ledger_anchored": false
+    },
+    "anchor": {
+      "verified": true,
+      "audit_head": "4f252581e762670e25f354953996bcc2c69f363ce3e5e15941bd2d6aca4210c9",
+      "transaction_hash": "0x88ca00fcca70e4c18f991b7cba3005f445283950dd4c3674841f1255d638b2c5",
+      "block_hash": "0xc92a2050bd6303639579dcbf28770407e462be551f472c076a80eef4de927216",
+      "network": {
+        "verified": true,
+        "chain_id": 20261123,
+        "validators": [
+          "0x0def683ade22bca5cce32df4e92c75a5de58fb0d",
+          "0x21a95132f2c440737a6a80269dc71c525eb3af56",
+          "0x6b4298eeb92aa5b64870c9725ae3dc6ab43fb09b",
+          "0x900a70099f7fc27aa71bc8db486fa94c580851f1"
+        ],
+        "nodes": [
+          {
+            "port": 18545,
+            "initial_height": 31,
+            "peers": 3,
+            "genesis": "0x553a11ff4564faffc0b4634cebad7bf9ab225bef7587657265af4d20fb6b5936",
+            "height": 34
+          },
+          {
+            "port": 18546,
+            "initial_height": 31,
+            "peers": 3,
+            "genesis": "0x553a11ff4564faffc0b4634cebad7bf9ab225bef7587657265af4d20fb6b5936",
+            "height": 34
+          },
+          {
+            "port": 18547,
+            "initial_height": 31,
+            "peers": 3,
+            "genesis": "0x553a11ff4564faffc0b4634cebad7bf9ab225bef7587657265af4d20fb6b5936",
+            "height": 34
+          },
+          {
+            "port": 18548,
+            "initial_height": 31,
+            "peers": 3,
+            "genesis": "0x553a11ff4564faffc0b4634cebad7bf9ab225bef7587657265af4d20fb6b5936",
+            "height": 34
+          }
+        ],
+        "common_block": 34,
+        "block_hash": "0x918c25f9660277915ea0ad1d102002f689a087e387dbb962d9431dd27b47f70b"
+      },
+      "receipts": 4
+    }
+  },
+  "remaining": [
+    "Actual GCP idle shutdown/restart gate",
+    "Independent host custodian operation",
+    "Public judge-accessible demonstration URL"
+  ]
+}

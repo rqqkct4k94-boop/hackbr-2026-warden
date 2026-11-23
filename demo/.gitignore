@@ -12,4 +12,4 @@ custody.json
 *release*.json
 networkFiles/
 .venv/
-
+judge/dist/

@@ -1,0 +1,8 @@
+import {readFileSync,mkdirSync,writeFileSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {dirname,join} from 'node:path';
+const root=dirname(fileURLToPath(import.meta.url));
+const files={'/':['index.html','text/html; charset=utf-8'],'/app.mjs':['app.mjs','text/javascript; charset=utf-8'],'/verify.mjs':['verify.mjs','text/javascript; charset=utf-8'],'/proof.json':['sample-proof.json','application/json; charset=utf-8'],'/pins.json':['sample-pins.json','application/json; charset=utf-8'],'/cloud-report.json':['recorded-cloud.json','application/json; charset=utf-8']};
+const routes=Object.fromEntries(Object.entries(files).map(([path,[file,type]])=>[path,{type,body:readFileSync(join(root,file),'utf8')}]));
+const source=`const routes=${JSON.stringify(routes)};\nconst common={'X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'unsafe-inline'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'none'",'Cache-Control':'public, max-age=60'};\nexport default {fetch(request){const path=new URL(request.url).pathname;if(request.method!=='GET'&&request.method!=='HEAD')return new Response('Method not allowed',{status:405,headers:common});if(!Object.hasOwn(routes,path))return new Response('Not found',{status:404,headers:common});const r=routes[path];return new Response(request.method==='HEAD'?null:r.body,{headers:{...common,'Content-Type':r.type}});}};\n`;
+mkdirSync(join(root,'dist'),{recursive:true});writeFileSync(join(root,'dist','worker.mjs'),source);console.log('Built static read-only verifier Worker. No dynamic network or secret binding.');

@@ -487,26 +487,38 @@ def configure(node,runtime):
     progress(f'{name} installation completed.')
 
 
+def retry_live_read(name, command, timeout=75, attempts=6):
+    """Retry only repeatable acceptance reads while IAP/guest services warm up."""
+    last=None
+    for attempt in range(1,attempts+1):
+        try:return json.loads(ssh(name,command,timeout=timeout).stdout)
+        except (RuntimeError,ValueError,subprocess.TimeoutExpired) as exc:
+            last=exc
+            if attempt<attempts:
+                progress(f'Live read not ready ({attempt}/{attempts}); retrying without changing the lab.')
+                time.sleep(8)
+    raise RuntimeError(f'Live acceptance read did not pass after {attempts} attempts') from last
+
+
 def cloud_verify(anchor=False):
     status(private_only=True);controller=CONTROL[0];base='/var/lib/warden-control';py='/opt/warden-p0/venv/bin/python';src='/opt/warden-p0'
     cmd=f'sudo -u warden-control {py} {src}/besu_lab.py verify --runtime {base}/besu'
-    for _ in range(10):
-        try: network=json.loads(ssh(controller,cmd,timeout=45).stdout);break
-        except (RuntimeError,ValueError):time.sleep(8)
-    else:raise RuntimeError('Four-validator live verification did not pass')
-    tls=json.loads(ssh(controller,'curl --max-time 10 -fsS -X POST http://127.0.0.1:8080/api/verify').stdout)
-    state=json.loads(ssh(controller,'curl --max-time 10 -fsS http://127.0.0.1:8080/api/state').stdout)
+    network=retry_live_read(controller,cmd)
+    tls=retry_live_read(controller,'curl --max-time 10 -fsS -X POST http://127.0.0.1:8080/api/verify',attempts=3)
+    state=retry_live_read(controller,'curl --max-time 10 -fsS http://127.0.0.1:8080/api/state',attempts=3)
     if not tls.get('verified') or not network.get('verified') or not state.get('proof',{}).get('verified'):
         raise RuntimeError('Local live TLS or audit/network acceptance did not pass')
     result={'network':network,'tls':tls,'audit':state['proof'],'anchor':None}
-    head=state['proof']['head'];receipt=f'{base}/besu/anchor-{head}.json';evidence=f'{base}/evidence.json'
+    head=state['proof']['head']
+    if not re.fullmatch(r'[0-9a-f]{64}',head):raise RuntimeError('Unexpected live audit head')
+    receipt=f'{base}/besu/anchor-{head}.json';evidence=f'{base}/evidence-{head}.json'
     if anchor:
         ssh(controller,f'sudo test -f {evidence} || sudo -u warden-control {py} {src}/warden_cli.py evidence --database {base}/runtime/authority.db --output {evidence}')
         cmd=f'sudo -u warden-control {py} {src}/besu_lab.py anchor --runtime {base}/besu --evidence {evidence} --pins {base}/runtime/pins.json'
         result['anchor']=json.loads(ssh(controller,cmd,timeout=100).stdout)
     elif ssh(controller,f'sudo test -f {receipt}',check=False).returncode==0:
         cmd=f'sudo -u warden-control {py} {src}/besu_lab.py verify-receipt --runtime {base}/besu --receipt {receipt}'
-        result['anchor']=json.loads(ssh(controller,cmd,timeout=65).stdout)
+        result['anchor']=retry_live_read(controller,cmd,timeout=90,attempts=3)
     return result
 
 
@@ -544,8 +556,10 @@ def apply(runtime,credit_brl,resume_network=False,resume_quota=False):
 
 
 def idle_gate(runtime):
+    progress('Checking the live group; a cold IAP or Besu startup may take several minutes.')
     before=cloud_verify();before_disks={x['name']:x['disk'] for x in status()}
     if not before['anchor'] or not before['anchor'].get('verified'):raise RuntimeError('Earn an actual ledger anchor before lifecycle acceptance')
+    progress('Live acceptance confirmed. Leave the dashboard closed for the 10-minute idle interval.')
     # No dashboard requests, SSH activity or lease refresh during this wait. Cloud status polls are read-only.
     start=time.monotonic();stopped=None
     while time.monotonic()-start<660:
@@ -556,6 +570,7 @@ def idle_gate(runtime):
     elapsed=time.monotonic()-start
     if elapsed<570:raise RuntimeError('Group stopped too early to verify a 600-second idle policy')
     if {x['name']:x['disk'] for x in stopped}!=before_disks:raise RuntimeError('Persistent disk identities changed')
+    progress('All five guests stopped and disks match. Restarting the exact lab to verify persistent state.')
     change_state('start');after=cloud_verify()
     if (before['audit']['head']!=after['audit']['head'] or before['anchor']['transaction_hash']!=after['anchor']['transaction_hash']
             or sorted(x['fingerprint'] for x in before['tls']['sites'])!=sorted(x['fingerprint'] for x in after['tls']['sites'])
@@ -585,4 +600,3 @@ def main():
 
 
 if __name__=='__main__':main()
-
