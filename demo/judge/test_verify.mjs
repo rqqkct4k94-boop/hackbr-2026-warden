@@ -1,8 +1,20 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {verifyProof} from './verify.mjs';
+import {generateKeyPairSync,createHash,sign} from 'node:crypto';
+import {verifyProof,verifyPresence,canonical} from './verify.mjs';
 const read=name=>JSON.parse(readFileSync(new URL(name,import.meta.url),'utf8'));
 test('independent WebCrypto verification of authentic local sample',async()=>{const p=await verifyProof(read('sample-proof.json'),read('sample-pins.json'));assert.equal(p.verified,true);assert.equal(p.authorized,2);assert.equal(p.denied,2);assert.equal(p.certificates.length,2);assert.equal(p.ledgerVerified,false);});
 test('tampering and wrong independent manifest pin fail closed',async()=>{const e=read('sample-proof.json'),pins=read('sample-pins.json');e.events.at(-1).payload.result.fingerprint='0'.repeat(64);await assert.rejects(verifyProof(e,pins),/auditoria alterada/);await assert.rejects(verifyProof(read('sample-proof.json'),{...pins,manifest:'0'.repeat(64)}),/Manifesto/);});
 test('recorded cloud report and local sample are explicitly different scopes',()=>{const r=read('recorded-cloud.json');assert.equal(r.live_acceptance.network.validators.length,4);assert.equal(r.live_acceptance.anchor.receipts,4);assert.notEqual(r.live_acceptance.audit.head,read('sample-pins.json').audit_head);});
+test('three presence signatures check against independent pins without implying issuance',async()=>{
+  const manifest=read('sample-proof.json').manifest;const pairs=manifest.custodians.map(()=>generateKeyPairSync('ed25519'));
+  manifest.custodians.forEach((x,i)=>x.public_key=pairs[i].publicKey.export({format:'der',type:'spki'}).subarray(-32).toString('base64'));
+  const pins={root:manifest.root_fingerprint,manifest:createHash('sha256').update(canonical(manifest)).digest('hex')};
+  const schema='warden-custody-presence-only-v1',challenge={schema,scope:'not-certificate-authorization',nonce:'b'.repeat(64),root_fingerprint:pins.root,manifest_sha256:pins.manifest,issued_at:1800000000,expires_at:1800000300};
+  const proofs=manifest.custodians.map((c,i)=>{const statement={schema,challenge,custodian_id:c.id};return {statement,signature:sign(null,Buffer.from(canonical(statement)),pairs[i].privateKey).toString('base64')};});
+  const report={manifest,challenge,proofs};const v=await verifyPresence(report,pins);assert.equal(v.identities.length,3);assert.equal(v.certificateAuthorization,false);
+  await assert.rejects(verifyPresence({...report,proofs:proofs.slice(0,2)},pins),/Três identidades/);
+  await assert.rejects(verifyPresence({...report,proofs:[proofs[0],proofs[0],proofs[2]]},pins),/duplicada/);
+  await assert.rejects(verifyPresence({...report,proofs:[{...proofs[0],signature:proofs[1].signature},...proofs.slice(1)]},pins),/Assinatura/);
+});

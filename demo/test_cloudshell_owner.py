@@ -1,11 +1,26 @@
 import unittest
 import subprocess
+import json
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 from cloudshell_owner import (ALL,NODES,PREFIX,NETWORK,SUBNET,CIDR,REGION,ZONE,LABELS,instance_args,validate_instance,
-                              startup_script,validator_installer,CONTROL_INSTALLER,validate_network_recovery,validate_quota_recovery,retry_live_read)
+                              startup_script,validator_installer,CONTROL_INSTALLER,validate_network_recovery,validate_quota_recovery,retry_live_read,export_public,IMAGE)
 
 
 class OwnerScopeTests(unittest.TestCase):
+    def test_public_export_checks_anchor_and_never_exports_secret_fields(self):
+        fixture=Path(__file__).parent/'judge';proof=json.loads((fixture/'sample-proof.json').read_text());pins=json.loads((fixture/'sample-pins.json').read_text());head=proof['events'][-1]['event_hash']
+        live={'anchor':{'verified':True,'audit_head':head,'transaction_hash':'synthetic-only'},'audit':{'head':head}}
+        with tempfile.TemporaryDirectory() as d:
+            runtime=Path(d);target=runtime/'stage-control'/'runtime';target.mkdir(parents=True);(target/'pins.json').write_text(json.dumps(pins))
+            (runtime/'prepared.json').write_text(json.dumps({'project':'synthetic-lab','zone':ZONE,'image':IMAGE,'scope':PREFIX,'prepared':True}))
+            with patch('cloudshell_owner.owner_project',return_value='synthetic-lab'),patch('cloudshell_owner.cloud_verify',return_value=live),patch('cloudshell_owner.retry_live_read',return_value={**proof,'manifest':{**proof['manifest'],'signing_key':'private'}}):
+                with self.assertRaisesRegex(ValueError,'non-public field'):export_public(runtime)
+            with patch('cloudshell_owner.owner_project',return_value='synthetic-lab'),patch('cloudshell_owner.cloud_verify',return_value=live),patch('cloudshell_owner.retry_live_read',return_value=proof):
+                self.assertTrue(export_public(runtime)['verified']);self.assertEqual(json.loads((runtime/'cloud-public-proof.json').read_text()),proof)
+                with self.assertRaisesRegex(RuntimeError,'already exists'):export_public(runtime)
+
     @patch('cloudshell_owner.time.sleep')
     @patch('cloudshell_owner.ssh')
     def test_live_read_retries_cloud_shell_timeout_and_fails_closed(self,ssh,sleep):

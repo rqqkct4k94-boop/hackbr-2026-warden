@@ -8,7 +8,7 @@ const source=`const routes=${JSON.stringify(routes)};\nconst common={'X-Content-
 mkdirSync(join(root,'dist'),{recursive:true});writeFileSync(join(root,'dist','worker.mjs'),source);console.log('Built static read-only verifier Worker. No dynamic network or secret binding.');
 // Local review artifact: retain functional buttons without network requests, file uploads, or a local server.
 const embedded=Object.fromEntries(['/proof.json','/pins.json','/cloud-report.json'].map(path=>[path,JSON.parse(routes[path].body)]));
-const offlineApp=routes['/app.mjs'].body.replace("import {verifyProof} from '/verify.mjs';",'').replace(/const load=async path=>\{[^\n]+\};/, 'const load=async path=>structuredClone(embedded[path]);');
+const offlineApp=routes['/app.mjs'].body.replace(/^import \{[^}]+\} from '\/verify\.mjs';/,'').replace(/const load=async path=>\{[^\n]+\};/, 'const load=async path=>structuredClone(embedded[path]);');
 const moduleSource=(routes['/verify.mjs'].body+'\nconst embedded='+JSON.stringify(embedded)+';\n'+offlineApp).replace(/<\/script/gi,'<\\/script');
 const standalone=routes['/'].body.replace('<script type="module" src="/app.mjs"></script>',()=>`<script type="module">${moduleSource}</script>`).replace(/href="(\/proof\.json|\/pins\.json|\/cloud-report\.json)"/g,(_match,path)=>`href="data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(embedded[path]))}"`);
 writeFileSync(join(root,'dist','standalone.html'),standalone);console.log('Built self-contained local review preview.');

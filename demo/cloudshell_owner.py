@@ -579,6 +579,38 @@ def idle_gate(runtime):
     write(Path(runtime)/'idle-acceptance.json',json.dumps(result,indent=2));return result
 
 
+def export_public(runtime):
+    """Export only independently verified public data from the actual private cloud ceremony."""
+    from warden import canonical,digest,verify_evidence
+    runtime=Path(runtime).expanduser().resolve()
+    if json.loads((runtime/'prepared.json').read_text())!={'project':owner_project(),'zone':ZONE,'image':IMAGE,'scope':PREFIX,'prepared':True}:
+        raise ValueError('Prepared runtime does not match exact lab scope')
+    paths=[runtime/'cloud-public-proof.json',runtime/'cloud-public-pins.json']
+    if any(p.exists() for p in paths):raise RuntimeError('Public export already exists. Preserve the earlier evidence; no overwrite.')
+    live=cloud_verify();controller=CONTROL[0]
+    if not live['anchor'] or not live['anchor'].get('verified'):raise RuntimeError('No verified matching live audit anchor to export')
+    proof=retry_live_read(controller,'curl --max-time 10 -fsS http://127.0.0.1:8080/api/evidence',attempts=3)
+    if set(proof)!={'manifest','events','ledger_anchor'} or proof['ledger_anchor'] is not None:raise ValueError('Unexpected public evidence envelope')
+    def public_only(value):
+        if isinstance(value,dict):
+            for key,item in value.items():
+                if key.lower() in {'private_key','signing_key','share','envelope','password','access_token','secret','credential'}:raise ValueError('Unexpected non-public field; refuse export')
+                public_only(item)
+        elif isinstance(value,list):
+            for item in value:public_only(item)
+        elif isinstance(value,str) and re.search(r'-----BEGIN [A-Z ]*PRIVATE KEY-----',value):raise ValueError('Unexpected non-public key material; refuse export')
+    public_only(proof)
+    pin=json.loads((runtime/'stage-control'/'runtime'/'pins.json').read_text())
+    result=verify_evidence(proof['manifest'],proof['events'],pin['root'],pin['manifest'])
+    if result['head']!=live['anchor']['audit_head'] or result['head']!=live['audit']['head'] or digest(canonical(proof['manifest']))!=pin['manifest']:
+        raise RuntimeError('Public evidence, independent manifest pin, and live audit anchor disagree')
+    public_pins={'root':pin['root'],'manifest':pin['manifest'],'audit_head':result['head']}
+    for p,value in zip(paths,(proof,public_pins)):
+        with p.open('x',encoding='utf8') as f:json.dump(value,f,indent=2)
+    print('The two cloud-public JSON files contain public evidence and pins only; never share their parent directory.')
+    return {'verified':True,'head':result['head'],'anchor_transaction':live['anchor']['transaction_hash'],'public_files':[p.name for p in paths]}
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__);sub=parser.add_subparsers(dest='cmd',required=True)
     sub.add_parser('plan');sub.add_parser('status');sub.add_parser('start');sub.add_parser('stop');sub.add_parser('verify')
@@ -587,6 +619,7 @@ def main():
     p=sub.add_parser('resume-network');p.add_argument('--runtime',required=True);p.add_argument('--credit-brl',type=float,required=True)
     p=sub.add_parser('resume-quota');p.add_argument('--runtime',required=True);p.add_argument('--credit-brl',type=float,required=True)
     p=sub.add_parser('idle-gate');p.add_argument('--runtime',required=True)
+    p=sub.add_parser('export-public');p.add_argument('--runtime',required=True)
     args=parser.parse_args()
     if args.cmd=='plan':print(json.dumps(plan(),indent=2))
     elif args.cmd=='prepare':prepare(args.runtime)
@@ -596,6 +629,7 @@ def main():
     elif args.cmd=='status':print(json.dumps(status(require_all=False),indent=2))
     elif args.cmd in ('start','stop'):print(json.dumps(change_state(args.cmd),indent=2))
     elif args.cmd=='verify':print(json.dumps(cloud_verify(),indent=2))
+    elif args.cmd=='export-public':print(json.dumps(export_public(args.runtime),indent=2))
     else:print(json.dumps(idle_gate(args.runtime),indent=2))
 
 

@@ -21,6 +21,28 @@ const sha = async bytes => hex(await crypto.subtle.digest('SHA-256',bytes));
 const hashObject = obj => sha(te.encode(canonical(obj)));
 const equal = (a,b) => a.length===b.length&&a.every((x,i)=>x===b[i]);
 
+export async function verifyPresence(report,pins){
+  const manifest=report.manifest,challenge=report.challenge,proofs=report.proofs;
+  const schema='warden-custody-presence-only-v1';
+  ensure(manifest&&challenge&&Array.isArray(proofs),'Relatório de presença inválido');
+  ensure(await hashObject(manifest)===pins.manifest&&manifest.root_fingerprint===pins.root,'Manifesto ou raiz de presença não corresponde ao pin');
+  const rootDer=pem(manifest.root_certificate,'CERTIFICATE'),root=certificate(rootDer);
+  ensure(await sha(rootDer)===pins.root,'Certificado raiz diferente do pin');
+  await verifySignature(await importEcdsa(root.spki),root);
+  ensure(challenge.schema===schema&&challenge.scope==='not-certificate-authorization'&&challenge.root_fingerprint===pins.root&&challenge.manifest_sha256===pins.manifest&&/^[0-9a-f]{64}$/.test(challenge.nonce),'Desafio registrado de presença inválido');
+  ensure(Number.isSafeInteger(challenge.issued_at)&&Number.isSafeInteger(challenge.expires_at)&&challenge.expires_at>challenge.issued_at&&challenge.expires_at-challenge.issued_at<=300,'Janela de desafio inválida');
+  const identities=new Map(manifest.custodians.map(x=>[x.id,x.public_key]));
+  ensure(identities.size===3&&new Set(identities.values()).size===3&&proofs.length===3&&CUSTODIANS.every(x=>identities.has(x)),'Três identidades distintas são obrigatórias');
+  const found=new Set();
+  for(const proof of proofs){
+    const s=proof.statement,id=s?.custodian_id;
+    ensure(Object.keys(proof).sort().join(',')==='signature,statement'&&identities.has(id)&&!found.has(id)&&canonical(s)===canonical({schema,challenge,custodian_id:id}),'Presença duplicada, desconhecida ou fora do desafio');
+    const key=await crypto.subtle.importKey('raw',un64(identities.get(id)),{name:'Ed25519'},false,['verify']);
+    ensure(await crypto.subtle.verify('Ed25519',key,un64(proof.signature),te.encode(canonical(s))),'Assinatura de presença inválida');found.add(id);
+  }
+  return {verified:true,identities:[...found].sort(),nonce:challenge.nonce,certificateAuthorization:false};
+}
+
 function pem(value,label){
   const regex=new RegExp('^-----BEGIN '+label+'-----\\s+([A-Za-z0-9+/=\\s]+)-----END '+label+'-----\\s*$');
   const match=String(value).match(regex);ensure(match,'PEM inválido: '+label);return un64(match[1].replace(/\s/g,''));

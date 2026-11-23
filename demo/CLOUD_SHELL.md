@@ -86,6 +86,14 @@ python custody_presence.py --runtime ~/warden-hackbr-p0-private
 
 It challenges the three actual dedicated custodian guest accounts with one short-lived, domain-separated random nonce, verifies their distinct Ed25519 signatures against the original independently pinned manifest, and writes a public `custody-presence-*.json` report. It never exports private signing keys or custody shares, never renews/revokes a certificate, and cannot be used as a certificate approval. It proves deployed signer key possession, not independent human control or an actual three-guest issuance. The latter remains a distinct gate.
 
+While the group is running, export the real cloud ceremony's **public-only** audit evidence and independent pins (separate from the local sample included with the judge portal):
+
+```bash
+python cloudshell_owner.py export-public --runtime ~/warden-hackbr-p0-private
+```
+
+This verifies the proof against the original owner ceremony manifest and current matching four-receipt audit anchor, refuses recognized secret fields, and creates only `cloud-public-proof.json` and `cloud-public-pins.json` without overwriting. Those two files may be loaded into the judge verifier. Never transfer the private runtime directory, custody packages, or staging archives. The browser independently verifies the certificate/approval evidence, not private-ledger transaction inclusion.
+
 Share **only** these public/synthetic acceptance summaries with Codex—never the parent runtime, bundles, private keys or custody shares:
 
 ```bash
