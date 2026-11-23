@@ -1,5 +1,7 @@
 # Warden — Hack Brasil 2026
 
+[![Testes de evidência](https://github.com/rqqkct4k94-boop/hackbr-2026-warden/actions/workflows/verify.yml/badge.svg)](https://github.com/rqqkct4k94-boop/hackbr-2026-warden/actions/workflows/verify.yml)
+
 **Quem controla a confiança digital da sua organização?**
 
 Warden é um protótipo de módulo de segurança definido por software (SDSM) para governança de uma PKI privada: três custodiantes distintos autorizam a mesma solicitação, e um verificador independente confere a evidência criptográfica. O laboratório utiliza exclusivamente uma organização e identidades sintéticas.
@@ -25,7 +27,7 @@ Warden é um protótipo de módulo de segurança definido por software (SDSM) pa
 
 ## Reproduzir
 
-O código foi criado para esta competição. As instruções completas de testes e os limites conhecidos estão em [demo/P0.md](demo/P0.md). A documentação de provisionamento isolado autorizado pelo proprietário está em [demo/CLOUD_SHELL.md](demo/CLOUD_SHELL.md).
+O código foi criado para esta competição. [Execução CI independente](https://github.com/rqqkct4k94-boop/hackbr-2026-warden/actions/runs/45229171713): 22 testes Python e 6 testes do verificador JavaScript passaram em checkout limpo, incluindo a construção do portal a partir do código. Essa execução não provisiona nem testa recursos ao vivo em GCP. As instruções completas de testes e os limites conhecidos estão em [demo/P0.md](demo/P0.md). A documentação de provisionamento isolado autorizado pelo proprietário está em [demo/CLOUD_SHELL.md](demo/CLOUD_SHELL.md).
 
 A solução usa Python, X.509, TLS, Hyperledger Besu e um verificador de evidência executado no navegador. O laboratório de nuvem e o portal público têm escopos separados. Não são usados dados pessoais reais de terceiros.
 
