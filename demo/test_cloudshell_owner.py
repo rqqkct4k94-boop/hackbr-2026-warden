@@ -61,6 +61,11 @@ class OwnerScopeTests(unittest.TestCase):
                      'tags':{'items':[PREFIX,PREFIX+'-validator']},'status':'TERMINATED'}
         disk={'name':n[0],'zone':'zones/'+ZONE,'sizeGb':'20','type':'diskTypes/pd-balanced','users':['zones/'+ZONE+'/instances/'+n[0]]}
         self.assertEqual(set(validate_quota_recovery(net,subnet,fw,[vm],[disk])),{n[0]})
+        # Actual GCE represents TCP 8545 and 8890 as separate entries with identical protocol.
+        separated={**fw[2],'allowed':[{'IPProtocol':'tcp','ports':['8545']},{'IPProtocol':'tcp','ports':['8890']}]}
+        self.assertEqual(set(validate_quota_recovery(net,subnet,[*fw[:2],separated],[vm],[disk])),{n[0]})
+        with self.assertRaises(RuntimeError):validate_quota_recovery(net,subnet,[*fw[:2],{**separated,'allowed':[{'IPProtocol':'tcp','ports':[]},*separated['allowed']]}],[vm],[disk])
+        with self.assertRaises(RuntimeError):validate_quota_recovery(net,subnet,[*fw[:2],{**separated,'allowed':[*separated['allowed'],{'IPProtocol':'tcp','ports':['22']}]}],[vm],[disk])
         with self.assertRaises(RuntimeError):validate_instance(n,vm,private_only=True)
         vm['networkInterfaces'][0].pop('accessConfigs');self.assertEqual(validate_instance(n,vm,private_only=True)['name'],n[0])
         with self.assertRaises(RuntimeError):validate_quota_recovery(net,subnet,fw,[],[disk])

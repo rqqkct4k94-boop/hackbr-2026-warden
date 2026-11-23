@@ -325,7 +325,14 @@ def validate_quota_recovery(networks,subnets,firewalls,instances,disks):
     if len(attached_rules)!=3 or {x.get('name') for x in attached_rules}!=set(expected_rules):
         raise RuntimeError('Quota recovery requires the exact three existing lab firewall rules')
     for f in attached_rules:
-        rules={x.get('IPProtocol'):set(x.get('ports',[])) for x in f.get('allowed',[])}
+        rules={}
+        for item in f.get('allowed',[]):
+            protocol=item.get('IPProtocol');ports=item.get('ports')
+            # GCE returns one entry per allowed port in some REST responses. Merge only
+            # explicit port lists; an omitted/empty list would permit the whole protocol.
+            if not protocol or not isinstance(ports,list) or not ports:
+                raise RuntimeError('Existing firewall contains an unrestricted or malformed protocol')
+            rules.setdefault(protocol,set()).update(ports)
         if (f.get('direction')!='INGRESS' or f.get('disabled',False) or f.get('denied') or
             f.get('sourceServiceAccounts') or f.get('targetServiceAccounts') or f.get('destinationRanges') or
             (rules,set(f.get('sourceRanges',[])),set(f.get('sourceTags',[])),set(f.get('targetTags',[])))!=expected_rules[f['name']]):
