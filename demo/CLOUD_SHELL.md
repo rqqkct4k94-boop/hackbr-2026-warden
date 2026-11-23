@@ -78,6 +78,14 @@ python cloudshell_owner.py stop
 
 `start` and `stop` refuse any instance with unexpected labels, network, machine type, tags, disk policy or attached service account. On stopping, disks are retained. No final deletion is performed. Do not start all five merely to perform periodic health checks. A public judge-facing HTTPS link must be separately designed and authorised; this protected IAP interface is not that link.
 
+After the lifecycle gate finishes (never during its ten-minute idle interval), the owner can run a separate read-only three-guest custodian presence check while the lab is running:
+
+```bash
+python custody_presence.py --runtime ~/warden-hackbr-p0-private
+```
+
+It challenges the three actual dedicated custodian guest accounts with one short-lived, domain-separated random nonce, verifies their distinct Ed25519 signatures against the original independently pinned manifest, and writes a public `custody-presence-*.json` report. It never exports private signing keys or custody shares, never renews/revokes a certificate, and cannot be used as a certificate approval. It proves deployed signer key possession, not independent human control or an actual three-guest issuance. The latter remains a distinct gate.
+
 Share **only** these public/synthetic acceptance summaries with Codex—never the parent runtime, bundles, private keys or custody shares:
 
 ```bash
@@ -86,4 +94,3 @@ cat "$PWD/../../warden-hackbr-p0-private/idle-acceptance.json"
 ```
 
 If either file does not exist, the corresponding gate is not proven. The script deliberately refuses a duplicate ambiguous anchor transaction if its intent already exists. Report the failure and preserve its evidence for review.
-
