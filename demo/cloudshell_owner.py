@@ -20,6 +20,7 @@ from pathlib import Path
 
 PROJECT=os.environ.get('WARDEN_DEMO_PROJECT',''); ZONE='us-central1-a'; REGION='us-central1'
 PREFIX='hackbr-warden-p0'; NETWORK=PREFIX+'-net'; SUBNET=PREFIX+'-subnet'; CIDR='10.88.24.0/24'
+ROUTER=PREFIX+'-router'; NAT=PREFIX+'-nat'; NAT_ADDRESS=PREFIX+'-egress'
 IMAGE='hyperledger/besu:26.11.1'; ROOT=Path(__file__).resolve().parent
 NODES=[(f'{PREFIX}-v{i}',f'10.88.24.{10+i}','e2-medium','validator') for i in range(1,5)]
 CONTROL=(PREFIX+'-control','10.88.24.20','e2-small','control'); ALL=NODES+[CONTROL]
@@ -78,11 +79,13 @@ def plan():
     inv=inventory()
     return {'inventory':inv,'scope':'new synthetic-only network; no peering, no production changes, no billing changes',
             'network':NETWORK,'subnet':CIDR,'zone':ZONE,'instances':[{'name':x[0],'internal_ip':x[1],'machine':x[2],'role':x[3],'persistent_disk_gb':20} for x in ALL],
-            'estimated_compute_usd_per_hour':0.15078,'estimate_excludes_disk_egress_and_ip_charges':True,
+            'estimated_compute_usd_per_hour':0.15078,'estimated_nat_usd_per_hour_at_five_assigned_vms':0.012,
+            'nat_data_processing_usd_per_gib':0.045,'estimate_excludes_disk_and_internet_egress_charges':True,
+            'external_ip_policy':'no individual VM public IPs; one dedicated NAT egress IP',
             'billing_changes':False,'usage_against_existing_credits_only':True,'idle_shutdown':'signed deadline from real activity; no health refresh; 600 seconds; preserve disks'}
 
 
-def validate_instance(node,actual):
+def validate_instance(node,actual,private_only=False):
     name,ip,machine,role=node
     nics=actual.get('networkInterfaces',[]);disks=actual.get('disks',[])
     if (actual.get('name')!=name or not actual.get('zone','').endswith('/'+ZONE)
@@ -93,20 +96,21 @@ def validate_instance(node,actual):
         raise RuntimeError(f'Refusing to operate on {name}: exact isolated lab configuration did not match')
     tags=set(actual.get('tags',{}).get('items',[]));expected={PREFIX,PREFIX+'-'+role}
     if tags!=expected:raise RuntimeError(f'Refusing unexpected network tags on {name}')
+    if private_only and nics[0].get('accessConfigs'):raise RuntimeError(f'{name} still has an external access configuration')
     return {'name':name,'status':actual['status'],'disk':disks[0].get('source'),'machine':machine}
 
 
-def status(require_all=True):
+def status(require_all=True,private_only=False):
     existing={x['name']:x for x in gcjson('compute','instances','list') or [] if x.get('name') in {n[0] for n in ALL}}
     if require_all and len(existing)!=5:raise RuntimeError('The exact five-VM lab is incomplete; no start/stop issued')
-    return [validate_instance(n,existing[n[0]]) for n in ALL if n[0] in existing]
+    return [validate_instance(n,existing[n[0]],private_only) for n in ALL if n[0] in existing]
 
 
 def change_state(action,partial=False):
     if action not in ('start','stop'):raise ValueError('Only start or stop of exact lab instances is supported')
-    statuses=status(require_all=not partial);names=[x['name'] for x in statuses if x['status']!=('RUNNING' if action=='start' else 'TERMINATED')]
+    statuses=status(require_all=not partial,private_only=action=='start');names=[x['name'] for x in statuses if x['status']!=('RUNNING' if action=='start' else 'TERMINATED')]
     if names:gc('compute','instances',action,*names,f'--zone={ZONE}',timeout=300)
-    return status(require_all=not partial)
+    return status(require_all=not partial,private_only=action=='start')
 
 
 def startup_script(role):
@@ -127,7 +131,7 @@ touch /var/lib/warden-p0-ready
 def instance_args(node,startup):
     name,ip,machine,role=node
     return ['compute','instances','create',name,f'--zone={ZONE}',f'--machine-type={machine}',f'--subnet={SUBNET}',f'--private-network-ip={ip}',
-            '--network-tier=STANDARD','--image-family=ubuntu-2404-lts-amd64','--image-project=ubuntu-os-cloud',
+            '--no-address','--image-family=ubuntu-2404-lts-amd64','--image-project=ubuntu-os-cloud',
             '--boot-disk-size=20GB','--boot-disk-type=pd-balanced','--no-boot-disk-auto-delete','--deletion-protection',
             '--no-service-account','--no-scopes','--metadata=block-project-ssh-keys=TRUE',f'--metadata-from-file=startup-script={startup}',
             f'--tags={PREFIX},{PREFIX}-{role}','--labels=hackbr=warden-p0,scope=synthetic']
@@ -307,6 +311,109 @@ def recover_network():
                                      gcjson('compute','disks','list') or [])
 
 
+def validate_quota_recovery(networks,subnets,firewalls,instances,disks):
+    """Accept only the exact lab after a VM-create quota failure, before configuration."""
+    attached_subnets=[x for x in subnets if str(x.get('network','')).endswith('/'+NETWORK)]
+    # Reuse the strict VPC/subnet validation; other resources are inspected below.
+    if not validate_network_recovery(networks,attached_subnets,[],[],[]):
+        raise RuntimeError('Quota recovery requires the existing exact lab subnet')
+    expected_rules={
+        PREFIX+'-iap':({'tcp':{'22'}},{'35.235.240.0/20'},set(),{PREFIX}),
+        PREFIX+'-peer':({'tcp':{'30303'},'udp':{'30303'}},set(),{PREFIX+'-validator'},{PREFIX+'-validator'}),
+        PREFIX+'-control':({'tcp':{'8545','8890'}},set(),{PREFIX+'-control'},{PREFIX+'-validator'})}
+    attached_rules=[x for x in firewalls if str(x.get('network','')).endswith('/'+NETWORK)]
+    if len(attached_rules)!=3 or {x.get('name') for x in attached_rules}!=set(expected_rules):
+        raise RuntimeError('Quota recovery requires the exact three existing lab firewall rules')
+    for f in attached_rules:
+        rules={x.get('IPProtocol'):set(x.get('ports',[])) for x in f.get('allowed',[])}
+        if (f.get('direction')!='INGRESS' or f.get('disabled',False) or f.get('denied') or
+            f.get('sourceServiceAccounts') or f.get('targetServiceAccounts') or f.get('destinationRanges') or
+            (rules,set(f.get('sourceRanges',[])),set(f.get('sourceTags',[])),set(f.get('targetTags',[])))!=expected_rules[f['name']]):
+            raise RuntimeError('Existing firewall rule differs from the authorised isolation plan')
+    scoped_names={n[0] for n in ALL};existing={}
+    for vm in instances:
+        attached=any(str(n.get('network','')).endswith('/'+NETWORK) for n in vm.get('networkInterfaces',[]))
+        if attached or str(vm.get('name','')).startswith(PREFIX):
+            if vm.get('name') not in scoped_names or vm['name'] in existing:raise RuntimeError('Unexpected VM on isolated lab VPC')
+            node=next(n for n in ALL if n[0]==vm['name']);validate_instance(node,vm)
+            if vm.get('status') not in ('RUNNING','TERMINATED'):raise RuntimeError('Lab VM is not in a stable state; wait and inspect')
+            existing[vm['name']]=vm
+    expected_disks={vm['disks'][0]['source'].rsplit('/',1)[-1]:vm['name'] for vm in existing.values()}
+    if any(name!=vmname for name,vmname in expected_disks.items()):raise RuntimeError('Unexpected or non-dedicated boot disk name')
+    found=set()
+    for d in disks:
+        name=d.get('name','')
+        if name.startswith(PREFIX) or name in expected_disks:
+            if (name not in expected_disks or name in found or not d.get('zone','').endswith('/'+ZONE) or
+                str(d.get('sizeGb'))!='20' or not d.get('type','').endswith('/pd-balanced')):
+                raise RuntimeError('Unexpected or orphaned lab disk; preserve it and review before recovery')
+            vmname=expected_disks[name]
+            if any(not str(u).endswith('/instances/'+vmname) for u in d.get('users',[])):
+                raise RuntimeError('Lab disk attached to an unexpected instance')
+            found.add(name)
+    if found!=set(expected_disks):raise RuntimeError('Existing lab disk inventory is incomplete')
+    return existing
+
+
+def quota_inventory():
+    return validate_quota_recovery(gcjson('compute','networks','list') or [],gcjson('compute','networks','subnets','list') or [],
+                                   gcjson('compute','firewall-rules','list') or [],gcjson('compute','instances','list') or [],
+                                   gcjson('compute','disks','list') or [])
+
+
+def detach_ephemeral_configs(existing):
+    reserved={x.get('address') for x in gcjson('compute','addresses','list') or [] if x.get('address')}
+    for name,vm in existing.items():
+        nic=vm['networkInterfaces'][0];configs=nic.get('accessConfigs',[])
+        if not configs:continue
+        if (len(configs)!=1 or nic.get('name')!='nic0' or configs[0].get('type')!='ONE_TO_ONE_NAT' or
+            not configs[0].get('name') or configs[0].get('natIP') in reserved):
+            raise RuntimeError('Refusing to detach an unexpected or reserved external address')
+        progress(f'Removing the old ephemeral public-IP configuration from {name}; disk retained.')
+        gc('compute','instances','delete-access-config',name,f'--zone={ZONE}',f'--network-interface={nic["name"]}',
+           f'--access-config-name={configs[0]["name"]}',timeout=300)
+
+
+def ensure_nat():
+    """Exactly one pinned regional public egress IP, only for the dedicated private VPC."""
+    routers=gcjson('compute','routers','list') or [];addresses=gcjson('compute','addresses','list') or []
+    attached=[r for r in routers if str(r.get('network','')).endswith('/'+NETWORK) or str(r.get('name','')).startswith(PREFIX)]
+    if len(attached)>1 or any(r.get('name')!=ROUTER or not str(r.get('network','')).endswith('/'+NETWORK) or not r.get('region','').endswith('/'+REGION) for r in attached):
+        raise RuntimeError('Unexpected router on the Warden scoped network')
+    scoped=[a for a in addresses if str(a.get('name','')).startswith(PREFIX)]
+    if len(scoped)>1 or any(a.get('name')!=NAT_ADDRESS or a.get('addressType')!='EXTERNAL' or not a.get('region','').endswith('/'+REGION) or a.get('networkTier')!='PREMIUM' or any('/routers/'+ROUTER not in u for u in a.get('users',[])) for a in scoped):
+        raise RuntimeError('Unexpected reserved address in the Warden scope')
+    if not scoped:
+        quotas=gcjson('compute','regions','describe',REGION).get('quotas',[])
+        for q in quotas:
+            if q.get('metric') in ('IN_USE_ADDRESSES','STATIC_ADDRESSES') and q.get('usage',0)>=q.get('limit',0):
+                raise RuntimeError('No remaining regional address quota for one shared NAT; no quota increase requested')
+        progress('Reserving a single scoped regional NAT egress address.')
+        gc('compute','addresses','create',NAT_ADDRESS,f'--region={REGION}','--network-tier=PREMIUM',timeout=300)
+    if not attached:
+        progress('Creating a router only on the dedicated Warden VPC.')
+        gc('compute','routers','create',ROUTER,f'--network={NETWORK}',f'--region={REGION}',timeout=300)
+    router=gcjson('compute','routers','describe',ROUTER,f'--region={REGION}');nats=router.get('nats',[])
+    if (not str(router.get('network','')).endswith('/'+NETWORK) or not router.get('region','').endswith('/'+REGION) or
+        router.get('interfaces') or router.get('bgpPeers') or len(nats)>1):
+        raise RuntimeError('Unexpected routing configuration on the dedicated lab router')
+    if nats:
+        nat=nats[0];ips=nat.get('natIps',[])
+        if (nat.get('name')!=NAT or nat.get('natIpAllocateOption')!='MANUAL_ONLY' or
+            nat.get('sourceSubnetworkIpRangesToNat')!='ALL_SUBNETWORKS_ALL_IP_RANGES' or len(ips)!=1 or not ips[0].endswith('/'+NAT_ADDRESS)):
+            raise RuntimeError('Existing NAT configuration differs from one-address dedicated plan')
+        progress('Existing exact one-address NAT verified; preserving it.')
+    else:
+        progress('Creating the dedicated shared NAT; no individual VM public addresses.')
+        gc('compute','routers','nats','create',NAT,f'--router={ROUTER}',f'--region={REGION}',
+           '--nat-all-subnet-ip-ranges',f'--nat-external-ip-pool={NAT_ADDRESS}',timeout=300)
+        nats=gcjson('compute','routers','describe',ROUTER,f'--region={REGION}').get('nats',[])
+        if (len(nats)!=1 or nats[0].get('name')!=NAT or nats[0].get('natIpAllocateOption')!='MANUAL_ONLY' or
+            nats[0].get('sourceSubnetworkIpRangesToNat')!='ALL_SUBNETWORKS_ALL_IP_RANGES' or
+            len(nats[0].get('natIps',[]))!=1 or not nats[0]['natIps'][0].endswith('/'+NAT_ADDRESS)):
+            raise RuntimeError('New NAT configuration could not be verified against one-address plan')
+
+
 def progress(message):print('[Warden P0] '+message,flush=True)
 
 
@@ -329,11 +436,28 @@ def create_infrastructure(runtime,resume_network=False):
     gc(*f,PREFIX+'-iap',*common,'--rules=tcp:22','--source-ranges=35.235.240.0/20',f'--target-tags={PREFIX}')
     gc(*f,PREFIX+'-peer',*common,'--rules=tcp:30303,udp:30303',f'--source-tags={PREFIX}-validator',f'--target-tags={PREFIX}-validator')
     gc(*f,PREFIX+'-control',*common,'--rules=tcp:8545,tcp:8890',f'--source-tags={PREFIX}-control',f'--target-tags={PREFIX}-validator')
+    ensure_nat()
     progress('Creating exactly five isolated VMs and retained boot disks; allow several minutes.')
     with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
         jobs=[pool.submit(gc,*instance_args(n,runtime/f'startup-{n[3]}.sh'),timeout=300) for n in ALL]
         for job in jobs:job.result()
-    status();progress('Five exact lab VM configurations validated.')
+    status(private_only=True);progress('Five exact private-only lab VM configurations validated.')
+
+
+def recover_quota_infrastructure(runtime):
+    progress('Inspecting the exact lab VPC, firewall and partial VM/disk allocation; no deletion.')
+    existing=quota_inventory()
+    if existing:change_state('stop',partial=True)
+    existing=quota_inventory();detach_ephemeral_configs(existing);ensure_nat()
+    existing=quota_inventory()
+    for name,vm in existing.items():validate_instance(next(n for n in ALL if n[0]==name),vm,private_only=True)
+    missing=[n for n in ALL if n[0] not in existing]
+    progress(f'Preserving {len(existing)} existing private VMs/disks and creating {len(missing)} missing private VMs.')
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+        jobs=[pool.submit(gc,*instance_args(n,runtime/f'startup-{n[3]}.sh'),timeout=300) for n in missing]
+        if existing:jobs.append(pool.submit(gc,'compute','instances','start',*existing,f'--zone={ZONE}',timeout=300))
+        for job in jobs:job.result()
+    status(private_only=True);progress('All five private-only VM identities validated.')
 
 
 def configure(node,runtime):
@@ -345,6 +469,8 @@ def configure(node,runtime):
         except subprocess.TimeoutExpired:pass
         time.sleep(8)
     else:raise RuntimeError(f'{name} did not finish its bounded bootstrap')
+    if ssh(name,'test ! -e /var/lib/warden-p0-configured',check=False).returncode!=0:
+        raise RuntimeError(f'{name} is already configured; refusing to overwrite persistent application or validator state')
     progress(f'Installing private bundle on {name} via IAP.')
     ssh(name,'umask 077; mkdir -m 700 -p "$HOME/warden-p0-staging"; sudo systemctl restart warden-bootstrap-guard.timer')
     scp(runtime/'bundles'/(name+'.tar.gz'),name,'~/warden-p0-staging/bundle.tar.gz')
@@ -355,7 +481,7 @@ def configure(node,runtime):
 
 
 def cloud_verify(anchor=False):
-    status();controller=CONTROL[0];base='/var/lib/warden-control';py='/opt/warden-p0/venv/bin/python';src='/opt/warden-p0'
+    status(private_only=True);controller=CONTROL[0];base='/var/lib/warden-control';py='/opt/warden-p0/venv/bin/python';src='/opt/warden-p0'
     cmd=f'sudo -u warden-control {py} {src}/besu_lab.py verify --runtime {base}/besu'
     for _ in range(10):
         try: network=json.loads(ssh(controller,cmd,timeout=45).stdout);break
@@ -377,11 +503,17 @@ def cloud_verify(anchor=False):
     return result
 
 
-def apply(runtime,credit_brl,resume_network=False):
+def apply(runtime,credit_brl,resume_network=False,resume_quota=False):
     owner_project();runtime=Path(runtime).resolve();meta=json.loads((runtime/'prepared.json').read_text())
     if meta!={'project':PROJECT,'zone':ZONE,'image':IMAGE,'scope':PREFIX,'prepared':True}:raise ValueError('Prepared runtime does not match exact lab scope')
     inv=inventory()
-    if resume_network:
+    if resume_quota:
+        allowed={NETWORK,SUBNET,PREFIX+'-iap',PREFIX+'-peer',PREFIX+'-control',*(n[0] for n in ALL)}
+        if not {NETWORK,SUBNET,PREFIX+'-iap',PREFIX+'-peer',PREFIX+'-control'}.issubset(inv['lab_name_collisions']) or any(x not in allowed for x in inv['lab_name_collisions']):
+            raise RuntimeError('Quota recovery accepts only the exact partially allocated lab network, firewall, VM and disk names')
+        if (runtime/'live-acceptance.json').exists():raise RuntimeError('A live acceptance already exists; refuse to overwrite or reconfigure')
+        quota_inventory()
+    elif resume_network:
         if NETWORK not in inv['lab_name_collisions'] or any(x not in (NETWORK,SUBNET) for x in inv['lab_name_collisions']):
             raise RuntimeError('Network-only recovery accepts only the exact interrupted VPC/subnet; unexpected resources require review')
         recover_network()
@@ -389,7 +521,8 @@ def apply(runtime,credit_brl,resume_network=False):
     if not inv['required_apis_present']:raise RuntimeError('Compute or IAP API is not enabled; owner must review before project-level changes')
     if not math.isfinite(credit_brl) or credit_brl<350:raise RuntimeError('Owner must verify at least R$350 remaining credit for this conservative bounded demo allocation')
     try:
-        create_infrastructure(runtime,resume_network)
+        if resume_quota:recover_quota_infrastructure(runtime)
+        else:create_infrastructure(runtime,resume_network)
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
             jobs=[pool.submit(configure,node,runtime) for node in ALL]
             for job in jobs:job.result()
@@ -430,12 +563,14 @@ def main():
     p=sub.add_parser('prepare');p.add_argument('--runtime',required=True)
     p=sub.add_parser('apply');p.add_argument('--runtime',required=True);p.add_argument('--credit-brl',type=float,required=True)
     p=sub.add_parser('resume-network');p.add_argument('--runtime',required=True);p.add_argument('--credit-brl',type=float,required=True)
+    p=sub.add_parser('resume-quota');p.add_argument('--runtime',required=True);p.add_argument('--credit-brl',type=float,required=True)
     p=sub.add_parser('idle-gate');p.add_argument('--runtime',required=True)
     args=parser.parse_args()
     if args.cmd=='plan':print(json.dumps(plan(),indent=2))
     elif args.cmd=='prepare':prepare(args.runtime)
     elif args.cmd=='apply':print(json.dumps(apply(args.runtime,args.credit_brl),indent=2))
     elif args.cmd=='resume-network':print(json.dumps(apply(args.runtime,args.credit_brl,True),indent=2))
+    elif args.cmd=='resume-quota':print(json.dumps(apply(args.runtime,args.credit_brl,resume_quota=True),indent=2))
     elif args.cmd=='status':print(json.dumps(status(require_all=False),indent=2))
     elif args.cmd in ('start','stop'):print(json.dumps(change_state(args.cmd),indent=2))
     elif args.cmd=='verify':print(json.dumps(cloud_verify(),indent=2))

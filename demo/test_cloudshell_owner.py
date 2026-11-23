@@ -1,6 +1,6 @@
 import unittest
 from cloudshell_owner import (ALL,NODES,PREFIX,NETWORK,SUBNET,CIDR,REGION,ZONE,LABELS,instance_args,validate_instance,
-                              startup_script,validator_installer,CONTROL_INSTALLER,validate_network_recovery)
+                              startup_script,validator_installer,CONTROL_INSTALLER,validate_network_recovery,validate_quota_recovery)
 
 
 class OwnerScopeTests(unittest.TestCase):
@@ -9,7 +9,7 @@ class OwnerScopeTests(unittest.TestCase):
         self.assertEqual(len({x[1] for x in ALL}),5)
         for node in ALL:
             args=instance_args(node,'/tmp/startup')
-            for option in ('--no-service-account','--no-scopes','--no-boot-disk-auto-delete','--deletion-protection','--boot-disk-size=20GB'):
+            for option in ('--no-service-account','--no-scopes','--no-boot-disk-auto-delete','--deletion-protection','--boot-disk-size=20GB','--no-address'):
                 self.assertIn(option,args)
             self.assertTrue(node[0].startswith(PREFIX)); self.assertIn('--metadata=block-project-ssh-keys=TRUE',args)
 
@@ -46,6 +46,25 @@ class OwnerScopeTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):validate_network_recovery(networks,[subnet],[],[],[{'name':PREFIX+'-v1'}])
         with self.assertRaises(RuntimeError):validate_network_recovery(networks,[subnet],[{'name':'not-lab','network':'networks/'+NETWORK}],[],[])
         with self.assertRaises(RuntimeError):validate_network_recovery([{**networks[0],'peerings':[{}]}],[subnet],[],[],[])
+
+    def test_quota_recovery_validates_partial_vm_disk_and_firewall(self):
+        net=[{'name':NETWORK,'autoCreateSubnetworks':False}]
+        subnet=[{'name':SUBNET,'network':'networks/'+NETWORK,'region':'regions/'+REGION,'ipCidrRange':CIDR}]
+        def rule(name,allowed,ranges,tags,targets):return {'name':PREFIX+name,'network':'networks/'+NETWORK,'direction':'INGRESS',
+             'allowed':[{'IPProtocol':p,'ports':ports} for p,ports in allowed.items()],'sourceRanges':ranges,'sourceTags':tags,'targetTags':targets}
+        fw=[rule('-iap',{'tcp':['22']},['35.235.240.0/20'],[],[PREFIX]),
+            rule('-peer',{'tcp':['30303'],'udp':['30303']},[],[PREFIX+'-validator'],[PREFIX+'-validator']),
+            rule('-control',{'tcp':['8545','8890']},[],[PREFIX+'-control'],[PREFIX+'-validator'])]
+        n=ALL[0];vm={'name':n[0],'zone':'zones/'+ZONE,'labels':dict(LABELS),'machineType':'machineTypes/'+n[2],
+                     'networkInterfaces':[{'name':'nic0','networkIP':n[1],'network':'networks/'+NETWORK,'accessConfigs':[{'name':'External NAT','type':'ONE_TO_ONE_NAT'}]}],
+                     'disks':[{'autoDelete':False,'source':'disks/'+n[0],'type':'PERSISTENT'}],
+                     'tags':{'items':[PREFIX,PREFIX+'-validator']},'status':'TERMINATED'}
+        disk={'name':n[0],'zone':'zones/'+ZONE,'sizeGb':'20','type':'diskTypes/pd-balanced','users':['zones/'+ZONE+'/instances/'+n[0]]}
+        self.assertEqual(set(validate_quota_recovery(net,subnet,fw,[vm],[disk])),{n[0]})
+        with self.assertRaises(RuntimeError):validate_instance(n,vm,private_only=True)
+        vm['networkInterfaces'][0].pop('accessConfigs');self.assertEqual(validate_instance(n,vm,private_only=True)['name'],n[0])
+        with self.assertRaises(RuntimeError):validate_quota_recovery(net,subnet,fw,[],[disk])
+        with self.assertRaises(RuntimeError):validate_quota_recovery(net,subnet,[{**fw[0],'sourceRanges':['0.0.0.0/0']},*fw[1:]],[vm],[disk])
 
 
 if __name__=='__main__':unittest.main()

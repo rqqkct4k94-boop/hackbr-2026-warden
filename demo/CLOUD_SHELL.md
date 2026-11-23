@@ -33,7 +33,7 @@ When the owner has confirmed that the trial credit is still available (**replace
 python cloudshell_owner.py apply --runtime "$PWD/../../warden-hackbr-p0-private" --credit-brl 350
 ```
 
-`apply` creates one private custom VPC and subnet with no peering, four separate 4 GiB `e2-medium` validators and one 2 GiB `e2-small` control/HTTPS VM. Every guest has a retained 20 GiB persistent boot disk, no attached service account or OAuth scopes, and deletion protection. Only IAP SSH is allowed from Google's IAP range; validator P2P is internal and RPC plus lease traffic is allowed only from the control host. Ephemeral external addresses permit package/image downloads, **not public service ingress**. No public CA claim or external blockchain.
+`apply` creates one private custom VPC and subnet with no peering, four separate 4 GiB `e2-medium` validators and one 2 GiB `e2-small` control/HTTPS VM. Every guest has a retained 20 GiB persistent boot disk, no attached service account or OAuth scopes, deletion protection, and **no individual public address**. Only IAP SSH is allowed from Google's IAP range; validator P2P is internal and RPC plus lease traffic is allowed only from the control host. A dedicated Cloud Router and one-address Public NAT provide outbound package/image downloads, not public service ingress. No public CA claim or external blockchain.
 
 If a prior apply was interrupted specifically during network/subnet creation, before any VM, disk or firewall was created, the narrow `resume-network` recovery command validates the exact custom unpeered VPC and its optional matching subnet, then continues without recreating either or regenerating keys. It refuses unexpected resources, existing lab disks, VMs or firewall rules. Never use this recovery path after a later-stage failure. Progress messages appear before each cloud operation; wait for the operation to finish rather than interrupting.
 
@@ -41,7 +41,13 @@ If a prior apply was interrupted specifically during network/subnet creation, be
 python cloudshell_owner.py resume-network --runtime "$PWD/../../warden-hackbr-p0-private" --credit-brl 350
 ```
 
-At the verified US-central list rates, compute is approximately US$0.151/hour while all five are running (about US$25.33 for seven days continuous use), excluding disk, ephemeral addresses, egress and exchange rates. Stopped persistent disk costs continue. The owner must keep the verified credit ceiling; there is no billing-account upgrade. [Google pricing](https://cloud.google.com/products/compute/pricing/general-purpose). [IAP SSH](https://docs.cloud.google.com/iap/docs/using-tcp-forwarding). [Guest shutdown](https://docs.cloud.google.com/compute/docs/instances/stop-start-instance).
+If a prior `apply` failed specifically during VM creation with `IN_USE_ADDRESSES` quota exceeded, **before application configuration**, `resume-quota` preserves the verified lab VPC/subnet/firewalls and all existing matching VMs/disks. It stops only scoped VMs, removes their original ephemeral public-IP configurations, validates/creates one shared NAT address and router, then creates only missing private VMs and resumes configuration. It refuses unrelated resources, orphaned disks, unexpected firewall/VM shapes or an existing successful acceptance. No quota increase is requested and no disk is deleted. Use this path only for that allocation-stage failure.
+
+```bash
+python cloudshell_owner.py resume-quota --runtime "$PWD/../../warden-hackbr-p0-private" --credit-brl 350
+```
+
+At the verified US-central list rates, compute is approximately US$0.151/hour while all five are running (about US$25.33 for seven days continuous use). Public NAT adds US$0.007/hour with five assigned VMs plus US$0.005/hour for one NAT public address, and US$0.045/GiB processed. Disk, internet egress and exchange rates are extra. Stopped persistent disk costs and the reserved egress address may continue. The owner must keep the verified credit ceiling; there is no billing-account upgrade. [Google pricing](https://cloud.google.com/products/compute/pricing/general-purpose). [Cloud NAT pricing](https://cloud.google.com/nat/pricing). [IAP SSH](https://docs.cloud.google.com/iap/docs/using-tcp-forwarding). [Guest shutdown](https://docs.cloud.google.com/compute/docs/instances/stop-start-instance).
 
 ## Owner demo and evidence
 
