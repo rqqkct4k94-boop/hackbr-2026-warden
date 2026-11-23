@@ -5,10 +5,21 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 from cloudshell_owner import (ALL,NODES,PREFIX,NETWORK,SUBNET,CIDR,REGION,ZONE,LABELS,instance_args,validate_instance,
-                              startup_script,validator_installer,CONTROL_INSTALLER,validate_network_recovery,validate_quota_recovery,retry_live_read,export_public,IMAGE)
+                              startup_script,validator_installer,CONTROL_INSTALLER,validate_network_recovery,validate_quota_recovery,retry_live_read,export_public,IMAGE,observe_idle_shutdown)
 
 
 class OwnerScopeTests(unittest.TestCase):
+    def test_idle_observation_allows_provider_lag_but_rejects_premature_stop(self):
+        names={x[0]:'disk-'+x[0] for x in ALL};now=[0]
+        def pause(seconds):now[0]+=seconds
+        def rows(s):return [{'name':n,'disk':d,'status':s} for n,d in names.items()]
+        def observed():return rows('RUNNING' if now[0]<600 else 'STOPPING' if now[0]<735 else 'TERMINATED')
+        elapsed,transition=observe_idle_shutdown(names,clock=lambda:now[0],pause=pause,read_status=observed)
+        self.assertEqual(elapsed,735);self.assertEqual(set(transition.values()),{600})
+        now[0]=0
+        with self.assertRaisesRegex(RuntimeError,'too early'):
+            observe_idle_shutdown(names,clock=lambda:now[0],pause=pause,read_status=lambda:rows('STOPPING'))
+
     def test_public_export_checks_anchor_and_never_exports_secret_fields(self):
         fixture=Path(__file__).parent/'judge';proof=json.loads((fixture/'sample-proof.json').read_text());pins=json.loads((fixture/'sample-pins.json').read_text());head=proof['events'][-1]['event_hash']
         live={'anchor':{'verified':True,'audit_head':head,'transaction_hash':'synthetic-only'},'audit':{'head':head}}

@@ -555,27 +555,45 @@ def apply(runtime,credit_brl,resume_network=False,resume_quota=False):
         raise
 
 
+def observe_idle_shutdown(before_disks,clock=time.monotonic,pause=time.sleep,read_status=None):
+    """Observe provider power-state transitions; guest policy remains exactly 600s.
+
+    GCE can report STOPPING/TERMINATED several minutes after guest shutdown begins.
+    Do not confuse provider observation time with the guest inactivity deadline.
+    """
+    read_status=read_status or (lambda:status(private_only=True));start=clock();first_transition={}
+    while clock()-start<900:
+        current=read_status();elapsed=clock()-start
+        if {x['name']:x['disk'] for x in current}!=before_disks:raise RuntimeError('Persistent disk identities changed')
+        for row in current:
+            if row['status'] in ('STOPPING','TERMINATED') and row['name'] not in first_transition:
+                first_transition[row['name']]=elapsed
+                if elapsed<570:raise RuntimeError('Guest stopped too early to verify a 600-second idle policy')
+        if all(x['status']=='TERMINATED' for x in current):
+            return elapsed,first_transition
+        pause(15)
+    raise RuntimeError('All five VMs did not reach TERMINATED within the 900-second provider observation window')
+
+
 def idle_gate(runtime):
     progress('Checking the live group; a cold IAP or Besu startup may take several minutes.')
     before=cloud_verify();before_disks={x['name']:x['disk'] for x in status()}
     if not before['anchor'] or not before['anchor'].get('verified'):raise RuntimeError('Earn an actual ledger anchor before lifecycle acceptance')
-    progress('Live acceptance confirmed. Leave the dashboard closed for the 10-minute idle interval.')
-    # No dashboard requests, SSH activity or lease refresh during this wait. Cloud status polls are read-only.
-    start=time.monotonic();stopped=None
-    while time.monotonic()-start<660:
-        current=status()
-        if all(x['status']=='TERMINATED' for x in current):stopped=current;break
-        time.sleep(15)
-    if stopped is None:raise RuntimeError('All five VMs did not enter TERMINATED; idle gate failed')
-    elapsed=time.monotonic()-start
-    if elapsed<570:raise RuntimeError('Group stopped too early to verify a 600-second idle policy')
-    if {x['name']:x['disk'] for x in stopped}!=before_disks:raise RuntimeError('Persistent disk identities changed')
+    # This last explicit TLS demonstration is the final genuine user operation. It starts
+    # the 600-second idle interval *after* earlier receipt verification has completed.
+    last=retry_live_read(CONTROL[0],'curl --max-time 10 -fsS -X POST http://127.0.0.1:8080/api/verify',attempts=3)
+    if not last.get('verified') or sorted(x['fingerprint'] for x in last['sites'])!=sorted(x['fingerprint'] for x in before['tls']['sites']):
+        raise RuntimeError('Final explicit TLS demonstration failed')
+    progress('Live acceptance confirmed. Leave the dashboard closed; 600-second guest idle policy, up to 900 seconds to observe provider termination.')
+    # No dashboard requests, SSH activity or lease refresh while observing the power states.
+    elapsed,first_transition=observe_idle_shutdown(before_disks)
     progress('All five guests stopped and disks match. Restarting the exact lab to verify persistent state.')
     change_state('start');after=cloud_verify()
     if (before['audit']['head']!=after['audit']['head'] or before['anchor']['transaction_hash']!=after['anchor']['transaction_hash']
             or sorted(x['fingerprint'] for x in before['tls']['sites'])!=sorted(x['fingerprint'] for x in after['tls']['sites'])
             or {x['name']:x['disk'] for x in status()}!=before_disks):raise RuntimeError('Restart failed to preserve required state')
-    result={'verified':True,'stopped_all_after_seconds':elapsed,'disks_preserved':True,'anchor_preserved':True,'tls_and_audit_preserved':True,'before':before,'after':after}
+    result={'verified':True,'configured_guest_idle_seconds':600,'provider_observation_limit_seconds':900,
+            'stopped_all_after_seconds':elapsed,'first_provider_stop_transition_seconds':first_transition,'disks_preserved':True,'anchor_preserved':True,'tls_and_audit_preserved':True,'before':before,'after':after}
     write(Path(runtime)/'idle-acceptance.json',json.dumps(result,indent=2));return result
 
 

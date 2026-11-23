@@ -61,7 +61,7 @@ gcloud compute ssh hackbr-warden-p0-control --project="$WARDEN_DEMO_PROJECT" --z
 
 Close the tunnel when finished. A normal browser page visit and the explicit TLS verify button count toward genuine activity. Health checks and background validator messages do not extend the idle deadline. The control process sends each validator its own authenticated **deadline**, not a fresh ten-minute lease; the dedicated guest-level receiver expires and shuts down without any broad cloud IAM service account. An in-flight user operation temporarily retains all nodes. The control guest and validators stop themselves, retaining state. The owner can start the exact validated group through Cloud Shell.
 
-Run the real lifecycle acceptance gate with the dashboard closed and no human activity during the wait (about 11 minutes). It verifies all five VMs are actually `TERMINATED`, checks disk identities, restarts only the matching group, and confirms the same audit head, two TLS fingerprints and anchor receipt.
+Run the real lifecycle acceptance gate with the dashboard closed and no human activity during the wait. The 600-second guest policy is unchanged; allow up to 900 seconds for the provider to report all five guests `TERMINATED`, plus restart and acceptance time. The gate records observed power-state transitions separately from the configured guest idle deadline, checks disk identities, starts only the matching group, and confirms the same audit head, two TLS fingerprints and anchor receipt. A provider-state timestamp is not the exact guest trigger time.
 
 ```bash
 python cloudshell_owner.py idle-gate --runtime "$PWD/../../warden-hackbr-p0-private"

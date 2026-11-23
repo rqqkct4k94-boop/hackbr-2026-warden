@@ -1,0 +1,37 @@
+{
+  "date_utc": "2026-11-23T08:57:04Z",
+  "source": "Read-only observation of the authenticated Google Cloud Console by Codex, following the owner's Cloud Shell idle-gate run",
+  "scope": "Dedicated synthetic Warden P0 lab only",
+  "owner_gate_commit": "12d0aa0c57a82e8296af7aff45785cf1855c3719",
+  "owner_gate": {
+    "live_precheck": "passed after cold-start read retries",
+    "configured_guest_idle_seconds": 600,
+    "provider_observation_limit_seconds": 660,
+    "result": "failed on provider observation timeout; script did not restart after failure",
+    "error": "All five VMs did not enter TERMINATED; idle gate failed"
+  },
+  "independent_console_observation": {
+    "initial": {
+      "control": "STOPPED",
+      "validator_1": "STOPPED",
+      "validator_2": "STOPPING",
+      "validator_3": "RUNNING",
+      "validator_4": "RUNNING"
+    },
+    "after_console_refresh": {
+      "control": "STOPPED",
+      "validator_1": "STOPPED",
+      "validator_2": "STOPPED",
+      "validator_3": "STOPPED",
+      "validator_4": "STOPPED"
+    },
+    "manual_stop_issued_by_codex": false,
+    "verified_all_stopped": true
+  },
+  "limitations": [
+    "Actual guest shutdown trigger timestamps were not collected; cloud power-state observation includes provider reporting and graceful shutdown latency.",
+    "The original gate timed out before all five power states changed and did not run its post-stop restart verification.",
+    "The full lifecycle acceptance, including matching persistent disk identities and matching audit/TLS/ledger after that shutdown, remains pending a corrected owner-run gate.",
+    "No private project identifiers, IP addresses, credentials or cryptographic keys are included in this summary."
+  ]
+}
