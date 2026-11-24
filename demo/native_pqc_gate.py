@@ -65,6 +65,14 @@ def decode(value, expected):
     return data
 
 
+def normalize_signature(raw):
+    """Accept the fixed ML-DSA signature size in binary or canonical Base64 form."""
+    if len(raw)==3309:return b64(raw)
+    try:value=raw.decode('ascii').strip();decoded=decode(value,3309)
+    except (ValueError,UnicodeDecodeError) as exc:raise ValueError('Unrecognized ML-DSA signature encoding') from exc
+    return b64(decoded)
+
+
 def validate_key(name, metadata, project):
     purpose, algorithm, _, _, _ = SPECS[name]
     if (metadata.get('name') != key_path(project, name) or metadata.get('purpose') != purpose
@@ -196,19 +204,34 @@ def save_new(path,data):
     with path.open('x',encoding='utf8') as stream:json.dump(data,stream,indent=2)
 
 
-def apply(runtime,credit,approve):
-    root,_=preflight(runtime);check_credit(credit)
+def choose_attempt_marker(root,state,recovery):
+    original=root/'native-pqc-provider-request-started'
+    retry=root/'native-pqc-signature-format-recovery-started'
+    if recovery:
+        if not original.is_file() or original.read_text(encoding='utf8')!='One fixed synthetic native PQC acceptance started\n':
+            raise RuntimeError('Recovery requires the exact original attempt marker')
+        if retry.exists():raise RuntimeError('One recovery already started; review evidence, no blind retry')
+        if not state['ring_exists'] or state['keys']!={SIGN:'ENABLED',KEM:'ENABLED'}:
+            raise RuntimeError('Recovery can reuse only the two already-enabled dedicated versions; no creation')
+        return retry
+    if original.exists() or retry.exists():raise RuntimeError('Previous operation outcome ambiguous; review owner evidence rather than retry blindly')
+    return original
+
+
+def apply(runtime,credit,approve,recovery=False):
+    root,state=preflight(runtime);check_credit(credit)
     out,pinfile=root/PROOF,root/PIN
     if out.exists() or pinfile.exists():
         if not out.exists() or not pinfile.exists():raise RuntimeError('Partial public report; owner review required')
         return {**verify_proof(json.loads(out.read_text()),json.loads(pinfile.read_text())),'reused_existing_public_proof':True}
-    marker=root/'native-pqc-provider-request-started'
-    if marker.exists():raise RuntimeError('Previous operation outcome ambiguous; review owner evidence rather than retry blindly')
+    marker=choose_attempt_marker(root,state,recovery)
     # Check actual local crypto support before any cloud resource creation.
     mldsa.MLDSA65PrivateKey.generate();mlkem.MLKEM768PrivateKey.generate()
     # Confirm installed CLI supports the native KEM command before creating a key.
     lab.gc('kms','decapsulate','--help')
-    head=audit_head(root);ensure_keys(approve)
+    head=audit_head(root)
+    if not recovery:ensure_keys(approve)
+    elif inventory()['keys']!={SIGN:'ENABLED',KEM:'ENABLED'}:raise RuntimeError('Recovery inventory changed; no operation')
     with tempfile.TemporaryDirectory(prefix='native-pqc-',dir=root) as tmp:
         path=Path(tmp);signfile,kemfile=path/'sign.pub',path/'kem.pub'
         for name,file in ((SIGN,signfile),(KEM,kemfile)):
@@ -216,7 +239,7 @@ def apply(runtime,credit,approve):
         sign_raw,kem_raw=signfile.read_bytes(),kemfile.read_bytes()
         if len(sign_raw)!=1952 or len(kem_raw)!=1184:raise RuntimeError('Provider did not return expected raw NIST public key bytes')
         mldsa.MLDSA65PublicKey.from_public_bytes(sign_raw);mlkem.MLKEM768PublicKey.from_public_bytes(kem_raw)
-        with marker.open('x',encoding='utf8') as stream:stream.write('One fixed synthetic native PQC acceptance started\n')
+        with marker.open('x',encoding='utf8') as stream:stream.write('One fixed synthetic native PQC '+('signature encoding recovery' if recovery else 'acceptance')+' started\n')
         def decap(ciphertext):
             ct,secretfile=path/'kem.ct',path/'kem.private-temporary'
             ct.write_bytes(ciphertext)
@@ -227,15 +250,21 @@ def apply(runtime,credit,approve):
         challenge,sig=path/'challenge.json',path/'signature.b64';challenge.write_bytes(canonical(message))
         # Pure ML-DSA signs raw data; do not pass a digest algorithm or disable integrity checking.
         lab.gc('kms','asymmetric-sign','--version=1',*options(SIGN),f'--input-file={challenge}',f'--signature-file={sig}')
-        signature=sig.read_text(encoding='ascii').strip()
+        # Preserve only public signing artifacts after a successful provider response,
+        # so a later local decode/validation failure does not require another cloud call.
+        public_stage=root/('native-pqc-recovery-public-stage' if recovery else 'native-pqc-public-stage')
+        public_stage.mkdir(mode=0o700,exist_ok=False)
+        for name,data in (('challenge.json',canonical(message)),('sign.pub',sign_raw),('kem.pub',kem_raw),('signature.response',sig.read_bytes())):
+            with (public_stage/name).open('xb') as stream:stream.write(data)
+        signature=normalize_signature(sig.read_bytes())
         proof={'schema':SCHEMA,'scope':'synthetic-demo-only','message':message,'sign_public_raw_b64':b64(sign_raw),'kem_public_raw_b64':b64(kem_raw),'signature_b64':signature,'provider_report':metadata()}
         pin={'schema':SCHEMA,'audit_head':head,'sign_public_sha256':sha(sign_raw),'kem_public_sha256':sha(kem_raw)}
         result=verify_proof(proof,pin);save_new(out,proof);save_new(pinfile,pin)
-    return {**result,'public_files':[PROOF,PIN]}
+    return {**result,'reused_existing_keys_only':recovery,'public_files':[PROOF,PIN]}
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('command',choices=['plan','apply','verify']);parser.add_argument('--runtime');parser.add_argument('--proof');parser.add_argument('--pin');parser.add_argument('--credit-brl',type=float);parser.add_argument('--approve-two-dedicated-new-keys',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('command',choices=['plan','apply','recover-signature-format','verify']);parser.add_argument('--runtime');parser.add_argument('--proof');parser.add_argument('--pin');parser.add_argument('--credit-brl',type=float);parser.add_argument('--approve-two-dedicated-new-keys',action='store_true');args=parser.parse_args()
     if args.command=='verify':
         if not args.proof or not args.pin:parser.error('Verify requires the two public JSON files')
         paths=[Path(args.proof),Path(args.pin)]
@@ -245,7 +274,9 @@ def main():
     elif args.command=='plan':result=plan(args.runtime)
     else:
         if args.credit_brl is None:parser.error('Apply requires current owner-verified credit')
-        result=apply(args.runtime,args.credit_brl,args.approve_two_dedicated_new_keys)
+        recovery=args.command=='recover-signature-format'
+        if recovery and args.approve_two_dedicated_new_keys:parser.error('Recovery never creates keys; do not pass creation approval')
+        result=apply(args.runtime,args.credit_brl,args.approve_two_dedicated_new_keys,recovery)
     print(json.dumps(result,indent=2))
 
 

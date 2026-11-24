@@ -1,6 +1,8 @@
 import unittest
 from copy import deepcopy
 from unittest.mock import patch
+import tempfile
+from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric import mldsa, mlkem
@@ -52,6 +54,25 @@ class NativePqcTests(unittest.TestCase):
         with patch.object(p,'inventory',return_value={'ring_exists':False,'keys':{}}),patch.object(p.lab,'gc') as cloud:
             with self.assertRaises(RuntimeError):p.ensure_keys(False)
             cloud.assert_not_called()
+
+    def test_binary_or_base64_signature_normalization(self):
+        raw=self.sign.sign(p.canonical(self.proof['message']))
+        self.assertEqual(p.normalize_signature(raw),p.b64(raw))
+        self.assertEqual(p.normalize_signature(p.b64(raw).encode('ascii')+b'\n'),p.b64(raw))
+        with self.assertRaises(ValueError):p.normalize_signature(b'not a valid signature')
+
+    def test_recovery_single_use_and_existing_exact_keys_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);original=root/'native-pqc-provider-request-started';retry=root/'native-pqc-signature-format-recovery-started'
+            state={'ring_exists':True,'keys':{p.SIGN:'ENABLED',p.KEM:'ENABLED'}}
+            with self.assertRaises(RuntimeError):p.choose_attempt_marker(root,state,True)
+            self.assertEqual(p.choose_attempt_marker(root,state,False),original)
+            original.write_text('One fixed synthetic native PQC acceptance started\n',encoding='utf8')
+            with self.assertRaises(RuntimeError):p.choose_attempt_marker(root,state,False)
+            with self.assertRaises(RuntimeError):p.choose_attempt_marker(root,{'ring_exists':True,'keys':{p.SIGN:'ENABLED'}},True)
+            self.assertEqual(p.choose_attempt_marker(root,state,True),retry)
+            retry.write_text('recovery started',encoding='utf8')
+            with self.assertRaises(RuntimeError):p.choose_attempt_marker(root,state,True)
 
 
 if __name__=='__main__':unittest.main()
