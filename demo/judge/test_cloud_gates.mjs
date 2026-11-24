@@ -43,9 +43,11 @@ test('KMS proof verifies only public challenge signature, pinned key and referen
   await assert.rejects(verifyNativeKmsProof({...proof,public_key_pem:'-----BEGIN PRIVATE KEY-----\nplaceholder\n-----END PRIVATE KEY-----'},pin,ref));
 });
 
-test('static portal has pending proof inputs but no shipped mock reports or write endpoint',async()=>{
+test('static portal includes the recorded owner lifecycle report but no shipped mock reports or write endpoint',async()=>{
   const get=(path,method='GET')=>worker.fetch(new Request('https://synthetic.invalid'+path,{method}));
   const html=await get('/console').text();assert.match(html,/lifecycle-file/);assert.match(html,/native-kms-pin/);assert.match(html,/Aguardando prova pública/);
   assert.equal(get('/cloud-gates.mjs').status,200);assert.equal(get('/cloud-gates.mjs','POST').status,405);
   assert.equal(get('/public-lifecycle-report.json').status,404);assert.equal(get('/public-native-kms-proof.json').status,404);
+  const report=await get('/lifecycle-report.json').json(),verified=verifyLifecycleReport(report,ref);assert.equal(verified.consistent,true);assert.equal(verified.observedSeconds,728.558);assert.equal(verified.providerAttestationVerified,false);assert.equal(get('/lifecycle-report.json','POST').status,405);
+  assert.match(await get('/').text(),/Relatório de aceitação/);
 });

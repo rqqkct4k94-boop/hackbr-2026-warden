@@ -1,0 +1,32 @@
+{
+  "schema": "warden-lifecycle-acceptance-v1",
+  "scope": "synthetic-warden-lab",
+  "source": "owner-run-gce-provider-observation-and-live-verification",
+  "verified": true,
+  "configured_guest_idle_seconds": 600,
+  "provider_observation_limit_seconds": 900,
+  "observed_all_terminated_seconds": 728.558,
+  "provider_transition_seconds": {
+    "hackbr-warden-p0-v1": 694.202,
+    "hackbr-warden-p0-v2": 710.963,
+    "hackbr-warden-p0-v3": 710.963,
+    "hackbr-warden-p0-v4": 710.963,
+    "hackbr-warden-p0-control": 710.963
+  },
+  "five_unique_disk_ids_preserved": true,
+  "restart_verified": true,
+  "four_validators_verified_after_restart": true,
+  "four_matching_anchor_receipts": 4,
+  "two_distinct_tls_fingerprints": {
+    "alpha.warden-demo.invalid": "c3a8bf3c4e0c9bd4bc1fabb307baa892aaec2c109f3fcfd3f6985ce679e60bd9",
+    "beta.warden-demo.invalid": "f8f725deb5b2273fdae22bc9d5a01221e606c9fc090a69f2d74111e8042db2b4"
+  },
+  "audit_head": "4f252581e762670e25f354953996bcc2c69f363ce3e5e15941bd2d6aca4210c9",
+  "anchor_transaction": "0x88ca00fcca70e4c18f991b7cba3005f445283950dd4c3674841f1255d638b2c5",
+  "guest_trigger_timestamp_independently_measured": false,
+  "completed_utc": 1795490901,
+  "limitations": [
+    "Provider power-state observation includes shutdown/reporting latency; not an exact guest trigger timestamp.",
+    "No manual stop was issued during the observed idle interval by this runner."
+  ]
+}

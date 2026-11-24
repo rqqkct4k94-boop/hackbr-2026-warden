@@ -1,0 +1,24 @@
+{
+  "schema": "warden-qpu-smoke-observation-v1",
+  "scope": "synthetic-hardware-smoke-only",
+  "source": "authenticated-provider-console-observation",
+  "provider": "IBM Quantum",
+  "backend": "ibm_marrakesh",
+  "plan": "Open Plan",
+  "mode": "physical-hardware",
+  "status": "Completed",
+  "shots": 256,
+  "circuit": "two-qubit Bell-state circuit with computational-basis measurements",
+  "qpu_seconds_displayed": 2,
+  "completion_seconds_displayed": 11,
+  "resource_units": 0.029489,
+  "observed_date_brt": "2026-11-23",
+  "job_id_sha256": "7886ffd29e8ebcf4240acc923acae6a2d0315a25a636d95c689f56ee5a56e219",
+  "provider_attestation_verified": false,
+  "bound_to_warden_custody_request": false,
+  "protected_key_operation_authorized": false,
+  "limitations": [
+    "The IBM console reported the physical workload completed. The public portal cannot independently query the account, attest hardware provenance, or verify measurement counts from this summary.",
+    "This is a standalone hardware smoke test, not an operational Warden authorization, quantum advantage claim, or mathematical proof of quantumness."
+  ]
+}

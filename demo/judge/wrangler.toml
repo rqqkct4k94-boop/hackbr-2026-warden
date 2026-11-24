@@ -1,0 +1,6 @@
+# Existing competition Worker only. No bindings, accounts, secrets, domains, or paid plans.
+name = "hackbr-2026-warden-p0"
+main = "dist/worker.mjs"
+compatibility_date = "2025-08-01"
+workers_dev = true
+preview_urls = false
