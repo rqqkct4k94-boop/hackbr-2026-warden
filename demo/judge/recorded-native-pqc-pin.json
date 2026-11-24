@@ -1,0 +1,6 @@
+{
+  "schema": "warden-native-pqc-v1",
+  "audit_head": "4f252581e762670e25f354953996bcc2c69f363ce3e5e15941bd2d6aca4210c9",
+  "sign_public_sha256": "076c8caf566e15e1f75725eb9f9ad07b72515ac9d5b1e4e3b657811ed9706e14",
+  "kem_public_sha256": "85221e67eb45c84a6dba0d1e90d3ab72e5fbc4b199bbc22880af80bdd0bb2e33"
+}

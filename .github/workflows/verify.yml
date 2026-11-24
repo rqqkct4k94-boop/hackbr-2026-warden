@@ -41,3 +41,4 @@ jobs:
         run: |
           node quantum_authority.mjs verify judge/quantum-sample.json judge/quantum-pins.json
           node quantum_authority.mjs trial
+          python native_pqc_gate.py verify --proof judge/recorded-native-pqc-proof.json --pin judge/recorded-native-pqc-pin.json
