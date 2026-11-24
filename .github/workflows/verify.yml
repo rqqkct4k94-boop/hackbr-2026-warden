@@ -27,7 +27,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '22'
+          node-version: '24.22.3'
           package-manager-cache: false
       - name: Install declared laboratory dependency
         run: python -m pip install -r requirements.txt
@@ -36,4 +36,8 @@ jobs:
       - name: Build public verifier from source
         run: node judge/build.mjs
       - name: Test public browser verifier and read-only portal
-        run: node --test judge/test_verify.mjs judge/test_preview.mjs judge/test_console.mjs judge/test_cloud_gates.mjs
+        run: node --test judge/test_verify.mjs judge/test_preview.mjs judge/test_console.mjs judge/test_cloud_gates.mjs judge/test_quantum_ui.mjs test_quantum_authority.mjs
+      - name: Reproduce independent public PQC proof and local encryption trial
+        run: |
+          node quantum_authority.mjs verify judge/quantum-sample.json judge/quantum-pins.json
+          node quantum_authority.mjs trial
