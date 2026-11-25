@@ -1,0 +1,28 @@
+{
+  "schema": "warden-verified-public-release-v1",
+  "scope": "synthetic-read-only-competition-worker",
+  "source_commit": "0382631006873c6ec88b228824a7a2d7472ab878",
+  "ci_run": "45323175412",
+  "deployed_utc": "2026-11-25T16:12:08.491245Z",
+  "worker": "hackbr-2026-warden-p0",
+  "public_url": "https://hackbr-2026-warden-p0.royalcrafter.workers.dev/quantum",
+  "version": "382db3b9-9160-4648-97cb-2f49c8747e96",
+  "deployment": "eebf9848-9126-49a1-b13e-a0cecc5847cf",
+  "previous_version_for_rollback": "84a14798-da98-4e7b-a493-ef1b6c288aab",
+  "traffic_percent": 100,
+  "provider_verified": {
+    "bindings": 0,
+    "public_worker_enabled": true,
+    "preview_urls_enabled": false
+  },
+  "browser_checks": {
+    "native_mldsa_signature_and_pins_verified": true,
+    "tampered_native_signature_rejected": true,
+    "missing_physical_qpu_denied": true
+  },
+  "limitations": [
+    "KEM report is operator evidence, not provider attestation.",
+    "The read-only browser does not execute a protected operation.",
+    "Request-bound IBM physical authorization is not deployed or verified yet."
+  ]
+}

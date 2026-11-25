@@ -23,6 +23,28 @@ Feature freeze follows these two final capabilities: post-quantum protection and
 4. **27 Nov — release freeze:** independently verify clean-checkout CI, read-only HTTPS console, proof validation and denial experience. Default 90-second no-account judge path; genuine hardware recording separately marked recorded, no live QPU claim without evidence. Optional own-cloud path is separate.
 5. **28–29 Nov — communication:** final UI polish, Portuguese rehearsal and <=3-minute video after functionality stabilizes. Submit only with explicit final owner approval by 30 Nov 23:59 BRT.
 
+## Owner-run IBM gate (25 Nov)
+
+The public PQC release is deployed and anonymously tested: [recorded release](judge/recorded-pqc-release.json). The next live acceptance is the isolated owner-side `ibm_quantum_gate.py`. It requires an existing IBM Cloud API key or existing saved Qiskit profile, the exact current Open Plan service CRN, and the existing prepared Warden runtime. It refuses non-Open plans and nonphysical or unavailable backends. **No credentials are ever accepted by the public portal; enter an existing key only in the private terminal's hidden prompt.** No saved credential is created by the runner.
+
+From the existing Cloud Shell `demo/` directory with the venv active and the approved `WARDEN_DEMO_PROJECT` set:
+
+```bash
+python -m pip install -r requirements-quantum.txt
+read -rp 'Existing IBM Open Plan instance CRN: ' WARDEN_IBM_INSTANCE
+python ibm_quantum_gate.py plan --runtime ~/warden-hackbr-p0-private --instance "$WARDEN_IBM_INSTANCE"
+```
+
+Review the current Open Plan remaining usage in the authenticated IBM console. After the plan confirms the exact physical backend, explicitly approve the single job:
+
+```bash
+python ibm_quantum_gate.py apply --runtime ~/warden-hackbr-p0-private --instance "$WARDEN_IBM_INSTANCE" --approve-one-open-plan-job
+```
+
+For an existing saved SDK profile add `--profile PROFILE_NAME`. A fresh local synthetic three-custodian dual-signature request is verified before submission, the 256-shot two-qubit Bell challenge carries both request and circuit digests, and a single journal reservation is committed before submission. The authenticated service re-fetches the exact submitted job and checks backend, instance, status, timestamps, tags, result circuit metadata, positive usage and bounded shot statistics. The journal atomically consumes the job and request before decrypting a fixed AES-GCM-encrypted synthetic document. It never creates or uses KMS keys. The circuit is classically simulable; quantum dependence is the owner-side policy gate, not a proof of quantum-exclusive computation or entropy. The three synthetic signers are not independent humans.
+
+If submission or result retrieval fails, stop. The private journal prevents repeat submissions; do not remove it to bypass this prohibition. Share only the redacted `public-ibm-gate-report.json` and, for independent signature validation, `public-ibm-gate-proof.json`. Until an actual provider result passes, tests remain local adapter-contract evidence only.
+
 ## Reproducible starter
 
 From `demo/` use Node 24.6+ (ML-KEM requires 24.7+) and run `node --test test_quantum_authority.mjs` and `node quantum_authority.mjs verify judge/quantum-sample.json judge/quantum-pins.json`. Verify the owner-run native proof independently with `python native_pqc_gate.py verify --proof judge/recorded-native-pqc-proof.json --pin judge/recorded-native-pqc-pin.json`. Only public proof/pins are published; never publish private data or test-only provider fixture receipts. The read-only portal's Quantum page shows recorded cryptographic proof and a fail-closed rehearsal. Request-bound hardware authorization and hybrid X-Wing remain pending. Hardware authorization is not yet implemented at a provider boundary.

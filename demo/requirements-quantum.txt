@@ -1,0 +1,2 @@
+# Owner-side only; public Worker and offline CI do not require this package.
+qiskit-ibm-runtime>=0.49,<1
