@@ -1,12 +1,16 @@
 """Local contract tests only; these fixtures are never public provider evidence."""
 import datetime as dt
+from contextlib import redirect_stdout
+from importlib.util import find_spec
+from io import StringIO
+import json
 import sqlite3
 import tempfile
 import unittest
 from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace as NS
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import ibm_quantum_gate as gate
 
@@ -73,7 +77,7 @@ class QuantumGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);fake_job=NS(job_id=lambda:self.job,wait_for_final_state=lambda **_:None)
             service=NS(job=lambda _:self.fixture(status=lambda:'ERROR'),active_instance=lambda:self.instance)
-            with patch.object(gate,'submit_physical',return_value=fake_job),patch.object(gate.AESGCM,'decrypt') as decrypt:
+            with patch.object(gate,'prepare_physical',return_value=lambda:fake_job),patch.object(gate.AESGCM,'decrypt') as decrypt:
                 with self.assertRaises(ValueError):gate.run_gate(service,self.instance,root,self.backend)
                 decrypt.assert_not_called()
             self.assertFalse((root/'public-ibm-gate-proof.json').exists())
@@ -82,14 +86,102 @@ class QuantumGateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);fake_job=NS(job_id=lambda:self.job,wait_for_final_state=lambda **_:None)
             service=NS(job=lambda _:self.fixture(),active_instance=lambda:self.instance)
-            with patch.object(gate,'make_custody',return_value=(self.proof,self.pin)),patch.object(gate.time,'time',side_effect=[self.now,self.now+5,self.now+5]),patch.object(gate,'submit_physical',return_value=fake_job):
+            with patch.object(gate,'make_custody',return_value=(self.proof,self.pin)),patch.object(gate.time,'time',side_effect=[self.now,self.now,self.now+5,self.now+5,self.now,self.now]), \
+                 patch.object(gate,'prepare_physical') as prepare:
+                def submit():
+                    with sqlite3.connect(root/'ibm-physical-gate.sqlite') as db:
+                        self.assertEqual(db.execute('SELECT state FROM gate').fetchone()[0],'reserved')
+                    return fake_job
+                prepare.return_value.side_effect = submit
                 report=gate.run_gate(service,self.instance,root,self.backend)
+                with self.assertRaises(sqlite3.IntegrityError):
+                    gate.run_gate(service,self.instance,root,self.backend)
+                prepare.return_value.assert_called_once_with()
             self.assertTrue(report['fixed_document_verified'])
             self.assertFalse(report['provider_attestation_verified']);self.assertFalse(report['kms_operation'])
             db=sqlite3.connect(root/'ibm-physical-gate.sqlite')
             try:self.assertEqual(db.execute('SELECT state FROM gate').fetchone()[0],'consumed')
             finally:db.close()
             self.assertTrue((root/'public-ibm-gate-report.json').exists())
+
+    def invoke_cli(self, command, root):
+        arguments = ['ibm_quantum_gate.py', command, '--runtime', str(root),
+                     '--instance', self.instance]
+        if command == 'apply':
+            arguments.append('--approve-one-open-plan-job')
+        output = StringIO()
+        with patch('sys.argv', arguments), patch.object(gate,'verify_runtime',return_value=root), \
+             patch.object(gate,'connect'), patch.object(gate,'open_plan',return_value=self.backend), \
+             redirect_stdout(output):
+            gate.main()
+        return json.loads(output.getvalue())
+
+    def test_failed_apply_preparation_leaves_no_journal_and_never_submits(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.object(gate,'prepare_physical',side_effect=ImportError) as prepare, patch.object(gate,'Journal') as journal:
+            root=Path(tmp)
+            with self.assertRaisesRegex(SystemExit,'ImportError'):
+                self.invoke_cli('apply',root)
+            prepare.assert_called_once()
+            journal.assert_not_called()
+            prepare.return_value.assert_not_called()
+            self.assertEqual(list(root.iterdir()),[])
+
+    def test_plan_never_invokes_prepared_submission(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(gate,'prepare_physical') as prepare:
+            root=Path(tmp)
+            plan=self.invoke_cli('plan',root)
+            self.assertEqual((plan['local_preparation'],plan['jobs_submitted']),('passed',0))
+            prepare.assert_called_once()
+            prepare.return_value.assert_not_called()
+            self.assertEqual(list(root.iterdir()),[])
+
+    @unittest.skipUnless(find_spec('qiskit_ibm_runtime'), 'Install requirements-quantum.txt for IBM SDK offline test')
+    def test_pinned_sdk_job_endpoint_does_not_retry_or_follow_post_redirects(self):
+        from qiskit_ibm_runtime import IBMBackend
+        from qiskit_ibm_runtime.api.session import RetrySession
+        from requests import Request, Response
+        from requests.adapters import HTTPAdapter
+
+        with RetrySession(base_url='https://synthetic.invalid/api/v1') as session:
+            client=NS(_session=session)
+            service=NS(active_instance=lambda:self.instance, usage=lambda:{'usage_remaining_seconds':120},
+                       _api_clients={self.instance:client})
+            backend=Mock(spec=IBMBackend)
+            backend.service,backend._instance=service,self.instance
+            with patch.object(gate,'prepare_sampler') as prepare:
+                gate.prepare_physical(service,self.instance,backend,self.spec)
+                prepare.return_value.assert_not_called()
+            url=session.base_url+'/jobs'
+            adapter=session.get_adapter(url)
+            self.assertEqual(adapter.max_retries.total,0)
+            self.assertIsNot(adapter,session.get_adapter(session.base_url+'/backends'))
+            response=Mock(spec=Response,status_code=307)
+            with patch.object(HTTPAdapter,'send',return_value=response) as send:
+                with self.assertRaisesRegex(ValueError,'redirected'):
+                    adapter.send(Request('POST',url).prepare())
+                send.assert_called_once()
+                response.close.assert_called_once()
+
+    @unittest.skipUnless(find_spec('qiskit_ibm_runtime'), 'Install requirements-quantum.txt for IBM SDK offline test')
+    def test_pinned_sdk_cli_preparation_with_offline_test_backend(self):
+        from qiskit_ibm_runtime import SamplerV2
+        from qiskit_ibm_runtime.fake_provider import FakeMarrakesh
+
+        # Explicit offline test backend. The normal physical gate rejects it.
+        self.backend=FakeMarrakesh()
+        service=NS(active_instance=lambda:self.instance)
+        with self.assertRaisesRegex(ValueError,'authenticated backend'):
+            gate.prepare_physical(service,self.instance,self.backend,self.spec)
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch('requests.sessions.Session.request',side_effect=AssertionError('network forbidden')), \
+             patch.object(SamplerV2,'run',side_effect=AssertionError('submission forbidden')) as run, \
+             patch.object(gate,'prepare_physical',side_effect=lambda _service,_instance,backend,spec:
+                          gate.prepare_sampler(backend,spec)):
+            root=Path(tmp)
+            self.assertEqual(self.invoke_cli('plan',root)['local_preparation'],'passed')
+            run.assert_not_called()
+            self.assertEqual(list(root.iterdir()),[])
 
 
 if __name__=='__main__':unittest.main()

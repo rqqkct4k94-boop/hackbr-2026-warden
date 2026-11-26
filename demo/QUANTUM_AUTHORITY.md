@@ -30,12 +30,14 @@ The public PQC release is deployed and anonymously tested: [recorded release](ju
 From the existing Cloud Shell `demo/` directory with the venv active and the approved `WARDEN_DEMO_PROJECT` set:
 
 ```bash
-python -m pip install -r requirements-quantum.txt
+python -m pip install -r requirements.txt -r requirements-quantum.txt
 read -rp 'Existing IBM Open Plan instance CRN: ' WARDEN_IBM_INSTANCE
 python ibm_quantum_gate.py plan --runtime ~/warden-hackbr-p0-private --instance "$WARDEN_IBM_INSTANCE"
 ```
 
-Review the current Open Plan remaining usage in the authenticated IBM console. After the plan confirms the exact physical backend, explicitly approve the single job:
+Use the reviewed preflight branch. Proceed only if the authenticated console confirms sufficient remaining Open Plan usage, `plan` reports `ibm_marrakesh`, `local_preparation: passed` and `jobs_submitted: 0`, and the private runtime has no previous IBM gate journal or output. The offline SDK test uses IBM's labeled `FakeMarrakesh` target and the real SDK constructor, options, transpiler, and serializer. The owner plan checks the actual target, faults, options and usage before the journal is opened. It exercises one 256-shot PUB with a 60-second execution cap. A passed plan leaves server acceptance, queue timing, measured usage and the authenticated result contract to the live run. [IBM Runtime 0.49 SamplerV2](https://quantum.cloud.ibm.com/docs/en/api/qiskit-ibm-runtime/0.49/sampler-v2) · [IBM Runtime 0.49 job results and metrics](https://quantum.cloud.ibm.com/docs/en/api/qiskit-ibm-runtime/0.49/runtime-job-v2)
+
+When those conditions hold, the owner can explicitly approve the single job.
 
 ```bash
 python ibm_quantum_gate.py apply --runtime ~/warden-hackbr-p0-private --instance "$WARDEN_IBM_INSTANCE" --approve-one-open-plan-job
@@ -43,7 +45,7 @@ python ibm_quantum_gate.py apply --runtime ~/warden-hackbr-p0-private --instance
 
 For an existing saved SDK profile add `--profile PROFILE_NAME`. A fresh local synthetic three-custodian dual-signature request is verified before submission, the 256-shot two-qubit Bell challenge carries both request and circuit digests, and a single journal reservation is committed before submission. The authenticated service re-fetches the exact submitted job and checks backend, instance, status, timestamps, tags, result circuit metadata, positive usage and bounded shot statistics. The journal atomically consumes the job and request before decrypting a fixed AES-GCM-encrypted synthetic document. It never creates or uses KMS keys. The circuit is classically simulable; quantum dependence is the owner-side policy gate, not a proof of quantum-exclusive computation or entropy. The three synthetic signers are not independent humans.
 
-If submission or result retrieval fails, stop. The private journal prevents repeat submissions; do not remove it to bypass this prohibition. Share only the redacted `public-ibm-gate-report.json` and, for independent signature validation, `public-ibm-gate-proof.json`. Until an actual provider result passes, tests remain local adapter-contract evidence only.
+A preparation failure before the journal is opened can be corrected by rerunning `plan`. If a journal already exists, preserve it and review the prior attempt. If submission or result retrieval fails, stop. The private journal prevents repeat submissions; do not remove it to bypass this prohibition. Share only the redacted `public-ibm-gate-report.json` and, for independent signature validation, `public-ibm-gate-proof.json`. Until an actual provider result passes, tests remain local adapter-contract evidence only.
 
 ## Reproducible starter
 
