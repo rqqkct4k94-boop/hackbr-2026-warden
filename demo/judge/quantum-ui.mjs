@@ -17,7 +17,7 @@ export async function browserCheck(proof,pins,alter=false){
   }
   return {classicalVerified:true,pqcVerified:pqc};
 }
-export async function checkNativePqc(proof,pin,cloud,alter=false){
+export async function nativePqcInputs(proof,pin,cloud,alter=false){
   const schema='warden-native-pqc-v1',scope='synthetic-demo-only';
   const eq=(a,b)=>canonical(a)===canonical(b);
   const exact=(v,keys)=>v&&typeof v==='object'&&eq(Object.keys(v).sort(),keys.sort());
@@ -34,12 +34,16 @@ export async function checkNativePqc(proof,pin,cloud,alter=false){
   if(msg.kem_public_sha256!==kp||!eq(pin,{schema,audit_head:msg.audit_head,sign_public_sha256:sp,kem_public_sha256:kp}))throw Error('Pin não corresponde');
   if(!eq(msg.kem_trial,{algorithm:'ML_KEM_768',aead:'AES-256-GCM',shared_key_match:true,roundtrip:true,tampered_ciphertext_rejected:true,encapsulation_bytes:1088,hybrid_xwing_verified:false}))throw Error('Relatório KEM inconsistente');
   if(alter)msg.nonce=msg.nonce==='0'.repeat(64)?'1'.repeat(64):'0'.repeat(64);
+  return {publicKey:sign, signature:sig, message:bytes(msg)};
+}
+export async function checkNativePqc(proof,pin,cloud,alter=false){
+  const {publicKey, signature, message} = await nativePqcInputs(proof,pin,cloud,alter);
   let key;
-  try{key=await crypto.subtle.importKey('raw-public',sign,{name:'ML-DSA-65'},false,['verify'])}catch(e){if(e.name==='NotSupportedError')return {pinsVerified:true,signatureVerified:false,supported:false};throw e}
-  if(!await crypto.subtle.verify({name:'ML-DSA-65'},key,sig,bytes(msg)))throw Error('Assinatura ML-DSA inválida');
+  try{key=await crypto.subtle.importKey('raw-public',publicKey,{name:'ML-DSA-65'},false,['verify'])}catch(e){if(e.name==='NotSupportedError')return {pinsVerified:true,signatureVerified:false,supported:false};throw e}
+  if(!await crypto.subtle.verify({name:'ML-DSA-65'},key,signature,message))throw Error('Assinatura ML-DSA inválida');
   return {pinsVerified:true,signatureVerified:true,supported:true,kemOperatorReportConsistent:true,providerAttestationVerified:false};
 }
-if(typeof document!=='undefined'){
+if(typeof document!=='undefined' && document.getElementById('verify-native')){
   const $=id=>document.getElementById(id),show=(id,message,ok)=>{$(id).textContent=message;$(id).classList.toggle('yes',ok)};
   async function check(alter){try{const get=async path=>{const r=await fetch(path,{credentials:'omit'});if(!r.ok)throw Error('Prova indisponível');return r.json()};const result=await browserCheck(await get('/quantum-proof.json'),await get('/quantum-pins.json'),alter);show('proof-status',result.pqcVerified?'VERIFICADO · 6 assinaturas ECDSA e ML-DSA válidas.':'3 assinaturas ECDSA verificadas. ML-DSA não suportada neste navegador; execute o verificador Node para validar as seis.',result.pqcVerified)}catch(e){show('proof-status','RECUSADO · '+e.message,false)}}
   $('verify').addEventListener('click',()=>check(false));$('alter').addEventListener('click',()=>check(true));$('check-gate').addEventListener('click',()=>show('gate-status','BLOQUEADO · nenhum resultado físico autenticado está disponível. Nenhuma operação de chave ou nuvem foi executada.',false));

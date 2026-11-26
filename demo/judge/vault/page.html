@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<title>FAROL-26 · Cofre de evidências · Warden</title>
+<style>
+:root{color-scheme:dark;font-family:"Segoe UI",system-ui,sans-serif;color:#ecf9f2;background:#081c18;line-height:1.55}*{box-sizing:border-box}
+body{margin:0}header{background:#102921;border-bottom:1px solid #345d49}header>div,main,footer{max-width:880px;margin:auto;padding:18px clamp(18px,4vw,38px)}
+header>div{display:flex;justify-content:space-between;gap:16px;align-items:center}.brand{font-weight:800;font-size:1.4rem;letter-spacing:.09em;color:#b5f5cb}.context{color:#bfd9cb}
+main{padding-top:clamp(32px,7vh,68px)}h1,h2,p{margin:0 0 .8rem}h1{font-size:clamp(2.4rem,6vw,4rem);letter-spacing:-.055em;line-height:1.03;max-width:17ch}h2{font-size:clamp(1.5rem,4vw,2.1rem);letter-spacing:-.035em;line-height:1.18}p{max-width:65ch}
+.intro{font-size:1.12rem;color:#c8dfd2}.panel{background:#102f25;border:1px solid #3b6653;border-radius:18px;padding:clamp(18px,4vw,32px);margin:22px 0}
+button{font:inherit;font-weight:700;border:1px solid transparent;cursor:pointer;border-radius:10px;background:#adf5c7;color:#10261b;padding:11px 17px}
+button.secondary{background:transparent;border-color:#63927a;color:#d9eedf}button:disabled{opacity:.6;cursor:wait}:focus-visible{outline:3px solid #ffd785;outline-offset:4px}
+.actions{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:20px}label{display:inline-flex;align-items:center;gap:8px}input{width:18px;height:18px;accent-color:#adf5c7}
+ol{list-style:none;display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:0 0 24px;padding:0}li{border-top:3px solid #456756;padding-top:5px;color:#b4cdbf;font-size:.88rem}
+li[aria-current=step]{border-color:#b0facb;color:#eefcf2;font-weight:700}li[data-result=ok]{border-color:#70bd91}li[data-result=pending]{border-color:#f4cc83}
+.result{font-weight:700;color:#b6f5cc}.pending{color:#f4cc83}.error{color:#ffb49e}.details{color:#c6dccc}dt{font-weight:700;color:#b7d3c2}dd{margin:0 0 .65rem;overflow-wrap:anywhere;font-family:ui-monospace,monospace;font-size:.85rem}
+details{margin:15px 0}summary{cursor:pointer;color:#c7ead4}footer{font-size:.85rem;color:#a7c5b6;border-top:1px solid #345d49}pre{white-space:pre-wrap;overflow-wrap:anywhere}
+[hidden]{display:none!important}@media(max-width:440px){.actions{align-items:stretch;flex-direction:column}header>div{font-size:.85rem}li{font-size:.8rem}}
+</style></head><body><header><div><span class="brand">WARDEN</span><span class="context">FAROL-26 · Laboratório sintético</span></div></header>
+<main><h1>Abrir um cofre de evidências</h1>
+<section id="intro" class="panel"><p class="intro">O serviço da FAROL-26 pediu um certificado. Acompanhe a decisão da CA, confira o que se sabe sobre o armazenamento do pacote e teste uma assinatura de auditoria.</p><p>Tudo acontece neste arquivo, sem login.</p>
+<div class="actions"><button id="start">Abrir o cofre</button><label><input id="auto" type="checkbox">Demonstrar caso automaticamente</label></div></section>
+<section id="flow" class="panel" aria-label="Percurso de verificação" hidden>
+<ol aria-label="Progresso"><li>1 · Certificado</li><li>2 · Armazenamento</li><li>3 · Auditoria</li></ol>
+<h2 id="title" tabindex="-1"></h2><p id="verdict" role="status" class="result"></p><div id="body"></div>
+<details id="technical"><summary>Conferir os identificadores</summary><dl id="ids"></dl></details>
+<div class="actions"><button id="next"></button><button class="secondary" id="play"></button><button class="secondary" id="reset">Reiniciar</button></div></section>
+<details><summary>Etapas opcionais para o proprietário</summary>
+<p>O roteiro técnico <code>demo/COFRE_FAROL.md</code> descreve o preflight de leitura e o aceite de uma única geração do objeto em um bucket de teste existente. A sessão autenticada fica no Cloud Shell ou CLI do proprietário.</p>
+<p>Discos persistentes exigem outro ensaio de metadados CMEK e releitura de um arquivo. Uma importação descartável encapsulada também exige autorização própria. As chaves de TLS, armazenamento simétrico e auditoria pós-quântica têm funções distintas.</p>
+<details><summary>Licenças das bibliotecas de verificação</summary><pre><!--LICENSES--></pre></details></details>
+</main><footer>Warden · Hack Brasil 2026</footer><!--DATA--><!--APP--></body></html>

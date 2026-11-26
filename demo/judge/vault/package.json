@@ -1,0 +1,13 @@
+{
+  "name": "warden-farol-vault",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "@noble/post-quantum": "0.7.1",
+    "esbuild": "0.28.2"
+  }
+}
