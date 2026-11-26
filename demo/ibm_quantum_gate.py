@@ -9,6 +9,9 @@ from __future__ import annotations
 import argparse
 import base64
 import datetime as dt
+from dataclasses import asdict
+from functools import partial
+from importlib.metadata import version
 import getpass
 import hashlib
 import json
@@ -29,6 +32,9 @@ SCHEMA='warden-quantum-authority-proof-v1'
 REPORT='warden-ibm-physical-gate-v1'
 BACKEND='ibm_marrakesh'
 SHOTS=256
+MAX_EXECUTION_TIME=60
+RUNTIME_VERSION="0.49.0"
+QISKIT_VERSION="2.6.2"
 MAX_AGE=900
 MAX_RESULT_AGE=300
 DOCUMENT=b'FAROL-26 | fixed synthetic quantum-dependent document'
@@ -151,10 +157,22 @@ class Journal:
     def close(self):self.db.close()
 
 
-def submit_physical(service,backend,spec):
+def check_sdk_version():
+    if (version("qiskit-ibm-runtime"), version("qiskit")) != (RUNTIME_VERSION, QISKIT_VERSION):
+        raise ValueError("Install the pinned requirements-quantum.txt")
+
+
+def prepare_sampler(backend,spec):
+    check_sdk_version()
     from qiskit import QuantumCircuit
     from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
-    from qiskit_ibm_runtime.server_side import SamplerV2
+    from qiskit.primitives.containers.sampler_pub import SamplerPub
+    from qiskit_ibm_runtime import IBMBackend, RuntimeEncoder, SamplerV2
+    from qiskit_ibm_runtime.runtime_options import RuntimeOptions
+    from qiskit_ibm_runtime.utils.validations import (
+        validate_classical_registers, validate_isa_circuits,
+        validate_no_dd_with_dynamic_circuits, validate_rzz_pubs,
+    )
     circuit=QuantumCircuit(2,name='warden-bound-bell')
     circuit.metadata=circuit_metadata(spec)
     circuit.h(0);circuit.cx(0,1)
@@ -162,21 +180,81 @@ def submit_physical(service,backend,spec):
     circuit.measure_all()
     isa=generate_preset_pass_manager(backend=backend,optimization_level=1,seed_transpiler=26).run(circuit)
     if isa.metadata!=circuit.metadata:raise ValueError('Request binding lost during transpilation')
-    sampler=SamplerV2(mode=backend,options={'environment':{'job_tags':job_tags(spec)},'max_execution_time':60})
-    return sampler.run([isa],shots=SHOTS)
+    sampler = SamplerV2(mode=backend, options={
+        'environment': {'job_tags': job_tags(spec)}, 'max_execution_time': MAX_EXECUTION_TIME,
+    })
+    if sampler.mode is not None or sampler.backend() is not backend:
+        raise ValueError('Backend job mode required')
+    pub = SamplerPub.coerce(isa, SHOTS)
+    validate_classical_registers([pub])
+    validate_isa_circuits([isa], backend.target)
+    validate_rzz_pubs([pub])
+    validate_no_dd_with_dynamic_circuits([isa], sampler.options)
+    if isinstance(backend, IBMBackend):
+        backend.check_faulty(isa)
+    # Validate the pinned SDK's option projection and PUB serialization locally.
+    options = asdict(sampler.options)
+    runtime = RuntimeOptions(**sampler.options._get_runtime_options(options))
+    runtime.validate(channel='ibm_quantum_platform')
+    if runtime.job_tags != job_tags(spec) or runtime.max_execution_time != MAX_EXECUTION_TIME:
+        raise ValueError('Runtime options lost request binding or execution limit')
+    json.dumps({'pubs': [pub], **sampler.options._get_program_inputs(options)}, cls=RuntimeEncoder)
+    return partial(sampler.run, [pub])
+
+
+def prepare_physical(service,instance,backend,spec):
+    from qiskit_ibm_runtime import IBMBackend
+    from requests.adapters import HTTPAdapter
+
+    if (not isinstance(backend, IBMBackend) or backend.service is not service
+            or backend._instance != instance or service.active_instance() != instance):
+        raise ValueError('Exact authenticated backend instance required')
+    submit = prepare_sampler(backend,spec)
+    usage = service.usage()
+    remaining = usage.get('usage_remaining_seconds')
+    if (usage.get('usage_limit_reached') or
+            (remaining is not None and
+             (type(remaining) not in (int,float) or not math.isfinite(remaining) or remaining <= 0))):
+        raise ValueError('Open Plan usage unavailable')
+
+    class SinglePostAdapter(HTTPAdapter):
+        def send(self, request, **kwargs):
+            response = super().send(request, **kwargs)
+            if request.method == 'POST' and 300 <= response.status_code < 400:
+                response.close()
+                raise ValueError('Job endpoint redirected')
+            return response
+
+    # Runtime 0.49.0 retries some POSTs by default. Scope the zero-retry
+    # adapter to this client's exact HTTPS job endpoint.
+    session = service._api_clients[instance]._session
+    endpoint = session.base_url + '/jobs'
+    if not endpoint.startswith('https://'):
+        raise ValueError('HTTPS job endpoint required')
+    session.mount(endpoint, SinglePostAdapter(max_retries=0))
+    return submit
+
+
+def prepare_request(service,instance,backend):
+    issued = int(time.time())
+    proof, pin = make_custody(issued)
+    spec = circuit_spec(verify_custody(proof,pin,issued))
+    submit = prepare_physical(service,instance,backend,spec)
+    if verify_custody(proof,pin,int(time.time())) != spec['request_sha256']:
+        raise ValueError('Custody changed during preparation')
+    return issued, proof, pin, spec, submit
 
 
 def run_gate(service,instance,root,backend):
     # This function is deliberately not a public API. The CLI supplies trusted service.
-    now=int(time.time());proof,pin=make_custody(now)
-    spec=circuit_spec(verify_custody(proof,pin,now))
+    now,proof,pin,spec,submit=prepare_request(service,instance,backend)
     local_key=AESGCM.generate_key(bit_length=256);nonce=secrets.token_bytes(12);aad=canonical(spec)
     encrypted=AESGCM(local_key).encrypt(nonce,DOCUMENT,aad)
     journal=Journal(root/'ibm-physical-gate.sqlite')
     try:
+        print('[Warden] Reserving one fixed Open Plan circuit before submission.',flush=True)
         journal.reserve(spec) # Commit before a single external mutation.
-        print('[Warden] Submitting one fixed Open Plan circuit; no automatic retry.',flush=True)
-        job=submit_physical(service,backend,spec);job_id=job.job_id()
+        job=submit();job_id=job.job_id()
         journal.submitted(spec,job_id)
         print('[Warden] Job submitted; waiting for physical result. No protected operation has run.',flush=True)
         job.wait_for_final_state(timeout=MAX_AGE-60,poll_interval=5)
@@ -198,6 +276,7 @@ def run_gate(service,instance,root,backend):
 
 
 def connect(instance,profile):
+    check_sdk_version()
     # Owner may use an existing SDK profile; otherwise enter an existing API key
     # in their private terminal. It is never saved or printed by this runner.
     from qiskit_ibm_runtime import QiskitRuntimeService
@@ -222,7 +301,12 @@ def main():
     if args.command=='apply' and any((root/p).exists() for p in ('ibm-physical-gate.sqlite','public-ibm-gate-proof.json','public-ibm-gate-report.json')):raise SystemExit('Prior attempt exists; review its state, do not resubmit')
     try:
         service=connect(args.instance,args.profile);backend=open_plan(service,args.instance)
-        if args.command=='plan':result={'plan':'open','backend':backend.name,'physical':True,'shots':SHOTS,'jobs':1,'kms_keys_created':0,'paid_fallback':False}
+        if args.command=='plan':
+            prepare_request(service,args.instance,backend)
+            result={'plan':'open','backend':backend.name,'physical':True,'shots':SHOTS,
+                    'jobs':1,'jobs_submitted':0,'local_preparation':'passed',
+                    'max_execution_time_seconds':MAX_EXECUTION_TIME,
+                    'kms_keys_created':0,'paid_fallback':False}
         else:result=run_gate(service,args.instance,root,backend)
         print(json.dumps(result,indent=2))
     except Exception as exc:
