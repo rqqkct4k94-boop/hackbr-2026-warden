@@ -2,6 +2,10 @@
 
 [![Testes de evidência](https://github.com/rqqkct4k94-boop/hackbr-2026-warden/actions/workflows/verify.yml/badge.svg)](https://github.com/rqqkct4k94-boop/hackbr-2026-warden/actions/workflows/verify.yml)
 
+## FAROL-26 · Abrir um cofre de evidências
+
+O [modo guiado do júri](demo/COFRE_FAROL.md) reúne a emissão do PR #7, o estado da proteção do objeto e um teste de alteração da prova ML-DSA. Para a prévia privada, abra `farol-26.html` sem login. O arquivo pode ser reproduzido com o build documentado e executa offline. Nesta edição, o armazenamento externo está **não verificado**.
+
 ## Um pedido, duas decisões e um certificado verificável
 
 O serviço fictício `alpha.warden-demo.invalid` pede um certificado. Com duas aprovações válidas, a CA registra a recusa e zero certificados para o serviço. A terceira identidade assina o **mesmo pedido** e a CA emite um X.509. O certificado contém o SHA-256 do pedido, que inclui o CSR e o hash da política. Uma tentativa de reutilizar a autorização é recusada.
