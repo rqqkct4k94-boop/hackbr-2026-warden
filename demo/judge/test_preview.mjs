@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 import worker from './dist/worker.mjs';
 
 test('read-only worker routes, headers and method restrictions',async()=>{
-  for(const [path,method,status] of [['/','GET',200],['/proof.json','GET',200],['/','HEAD',200],['/','POST',405],['/unknown','GET',404]]){
+  for(const [path,method,status] of [['/','GET',200],['/proof.json','GET',200],['/issuance-case.json','GET',200],['/issuance-pins.json','GET',200],['/','HEAD',200],['/','POST',405],['/unknown','GET',404]]){
     const r=worker.fetch(new Request('https://synthetic.invalid'+path,{method}));
     assert.equal(r.status,status);assert.ok(r.headers.get('Content-Security-Policy'));if(method==='HEAD')assert.equal(await r.text(),'');
   }
@@ -20,6 +20,10 @@ test('offline module loads cloud report, verifies sample and detects tampering',
     await import('data:text/javascript;base64,'+Buffer.from(code).toString('base64'));
     await elements.get('verify-sample').onclick();assert.match(elements.get('sample-status').textContent,/PROVA VERIFICADA/);
     await elements.get('tamper').onclick();assert.match(elements.get('sample-status').textContent,/ALTERAÇÃO DETECTADA/);
+    await elements.get('verify-case').onclick();
+    assert.match(elements.get('case-status').textContent, /EMISSÃO VERIFICADA/);
+    await elements.get('alter-case').onclick();
+    assert.match(elements.get('case-status').textContent, /APROVAÇÃO ALTERADA RECUSADA/);
     assert.equal(elements.get('cloud-metrics').children.length,4);
   }finally{delete globalThis.document;}
 });

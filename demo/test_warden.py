@@ -194,6 +194,62 @@ class WardenTests(unittest.TestCase):
             self.assertNotIn(custodian['signing_key'], row['manifest'])
 
 
+class IssuanceCaseTests(unittest.TestCase):
+    def test_fresh_ceremony_and_retained_pins(self):
+        from issuance_case import run_case
+        bundle, pins = run_case()
+        manifest, events = bundle["manifest"], bundle["events"]
+        self.assertEqual(events[2]["payload"]["service_certificate_count"], 0)
+        self.assertEqual(len(events[2]["payload"]["approvals"]), 2)
+        self.assertEqual(len(events[3]["payload"]["approvals"]), 3)
+        report = verify_evidence(manifest, events, pins["root"], pins["manifest"], pins["audit_head"])
+        self.assertEqual((report["authorized_operations"], report["certificates"]), (1, 1))
+        with self.assertRaisesRegex(PolicyError, "independently retained"):
+            verify_evidence(manifest, events, pins["root"], pins["manifest"])
+        exported = canonical(bundle)
+        for secret_field in (b'"share":', b'"signing_key":', b'"ciphertext":', b'PRIVATE KEY'):
+            self.assertNotIn(secret_field, exported)
+
+    def test_other_valid_leaf_for_same_csr_and_ca_is_rejected(self):
+        from contextlib import closing
+        from warden import ZERO, QuorumDenied
+        with closing(Authority(":memory:")) as first, closing(Authority(":memory:")) as second:
+            custodians = first.initialize(single_issuance=True)
+            # Two independent test histories from the same ceremony, each issuing normally.
+            first.db.backup(second.db)
+            _, csr = create_site_csr(HOSTS[0])
+            for ca in (first, second):
+                req = ca.request("issue", csr)
+                approvals = [make_approval(c, req) for c in custodians]
+                with self.assertRaises(QuorumDenied):
+                    ca.authorize(req["id"], approvals[:2])
+                ca.authorize(req["id"], approvals)
+                with self.assertRaisesRegex(PolicyError, "already completed"):
+                    ca.authorize(req["id"], approvals)
+            manifest, events = first.manifest(), first.events()
+            events[3]["payload"]["result"] = second.events()[3]["payload"]["result"]
+            prev = ZERO
+            for event in events:
+                event["prev_hash"] = prev
+                body = {k: event[k] for k in ("seq", "prev_hash", "payload")}
+                event["event_hash"] = prev = digest(canonical(body))
+            # Even if checked against a new history head, the CA-signed binding still rejects it.
+            with self.assertRaisesRegex(PolicyError, "Certificate request binding mismatch"):
+                verify_evidence(manifest, events, manifest["root_fingerprint"], digest(canonical(manifest)), prev)
+
+    def test_custodians_refuse_a_changed_policy(self):
+        from contextlib import closing
+        with closing(Authority(":memory:")) as authority:
+            packages = authority.initialize(single_issuance=True)
+            _, csr = create_site_csr(HOSTS[0])
+            req = authority.request("issue", csr)
+            with self.assertRaisesRegex(PolicyError, "ceremony policy"):
+                make_approval(packages[0], {**req, "policy_sha256": "0" * 64})
+            _, other = create_site_csr(HOSTS[1])
+            with self.assertRaisesRegex(PolicyError, "versioned issuance policy"):
+                authority.request("issue", other)
+
+
 class LifecycleTests(unittest.TestCase):
     def test_ten_minute_true_idle_and_health_checks(self):
         now = [0]; lease = ActivityLease(lambda: now[0]);

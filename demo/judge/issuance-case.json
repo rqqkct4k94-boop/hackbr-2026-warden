@@ -1,0 +1,160 @@
+{
+  "manifest": {
+    "custodians": [
+      {
+        "id": "custodian-a",
+        "public_key": "i85YlDMUar0OppQ1MU9lCXnRqIH4utv4+1HKlULE6y4=",
+        "share_sha256": "f0599f0234d19fc00d11f13aa483fbcdb813addc86c1f79b2fd170ca91448960"
+      },
+      {
+        "id": "custodian-b",
+        "public_key": "mUzZLmtPrsFL8m1Nnk5QZflaeFESxXMk4KibhCKHB2s=",
+        "share_sha256": "afd7efae414b6b014b59958970971081577d526d590232296e8726e06947066b"
+      },
+      {
+        "id": "custodian-c",
+        "public_key": "ISfKDjYce0TbRmJbGbTNF5hZA/LRP21y08Ia47Enmx8=",
+        "share_sha256": "c10d37ac7200fe909c99d5850dc95e6d96f5dd2374506c650f92f4be077bac35"
+      }
+    ],
+    "issuance_policy": {
+      "authorization_seconds": 600,
+      "custodians": [
+        "custodian-a",
+        "custodian-b",
+        "custodian-c"
+      ],
+      "hostname": "alpha.warden-demo.invalid",
+      "kind": "issue",
+      "required": 3,
+      "version": "warden-single-issuance-v1"
+    },
+    "policy": "three-of-three-signed-custody-release",
+    "root_certificate": "-----BEGIN CERTIFICATE-----\nMIIBzTCCAXOgAwIBAgIUECfoKpnuA4PV9R/56tYJKpWp+eIwCgYIKoZIzj0EAwIw\nQzEjMCEGA1UECgwaV2FyZGVuIFN5bnRoZXRpYyBUcnVzdCBMYWIxHDAaBgNVBAMM\nE1dhcmRlbiBEZW1vIFJvb3QgQ0EwHhcNMjYxMTI2MDQ1MzIxWhcNMjcwMjI0MDQ1\nNTIxWjBDMSMwIQYDVQQKDBpXYXJkZW4gU3ludGhldGljIFRydXN0IExhYjEcMBoG\nA1UEAwwTV2FyZGVuIERlbW8gUm9vdCBDQTBZMBMGByqGSM49AgEGCCqGSM49AwEH\nA0IABA7yljCoGKYbmIm9KP8kD2k6L24yELwcLe2B6kgzNZ4zlcXAIyGtceejS2Qj\n43N5nhyHNM3bUyPkVpDuEruB7iWjRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQAwDgYD\nVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBQ3pGrG78D+GGLG1+xVuE3Q9QSYXTAKBggq\nhkjOPQQDAgNIADBFAiEArF9ok8esjv257uhQ8gkJuUp00Q3SH6sWuDc+oSkzVqEC\nIGg7n8MQtknLs13K25cqmO3DHD+t27L/mNTaA3thc0j/\n-----END CERTIFICATE-----\n",
+    "root_fingerprint": "2b2bf11f3f9d1c0f196a8a0fb4b486f2c3d962259b290f5394a54fda471bd307",
+    "schema": "warden-hackbr-p0-v1"
+  },
+  "events": [
+    {
+      "seq": 1,
+      "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "payload": {
+        "at": 1795668921,
+        "manifest_sha256": "d5444304f083ffeeeefaccf366a5f323c7ca5c826d8c4314ce46ab4a6d6f7b8a",
+        "type": "ceremony"
+      },
+      "event_hash": "cc6f49f4352582c142708febca912ef84fa1b97e35db8ee1ef7ad731578487f5"
+    },
+    {
+      "seq": 2,
+      "prev_hash": "cc6f49f4352582c142708febca912ef84fa1b97e35db8ee1ef7ad731578487f5",
+      "payload": {
+        "at": 1795668921,
+        "request": {
+          "created_at": 1795668921,
+          "csr_pem": "-----BEGIN CERTIFICATE REQUEST-----\nMIIBPDCB4gIBADBJMSMwIQYDVQQKDBpXYXJkZW4gU3ludGhldGljIFRydXN0IExh\nYjEiMCAGA1UEAwwZYWxwaGEud2FyZGVuLWRlbW8uaW52YWxpZDBZMBMGByqGSM49\nAgEGCCqGSM49AwEHA0IABLgzrUec0dXKTylJXWX3m0Jxo6OfeuvFrGL9MppwYe8F\nI15yUvX9sOJ4wPLmyJEf/k+v00SdCeEJc9DfVZfb+fSgNzA1BgkqhkiG9w0BCQ4x\nKDAmMCQGA1UdEQQdMBuCGWFscGhhLndhcmRlbi1kZW1vLmludmFsaWQwCgYIKoZI\nzj0EAwIDSQAwRgIhALZPAs9De54Lg7WeA3AnDsa8fxsX0336rAc/kUH8tZKLAiEA\nzKLcFIumM5twaFZVgfFf6INoh3Ih9UJrGfqI+nWPmyc=\n-----END CERTIFICATE REQUEST-----\n",
+          "expires_at": 1795669521,
+          "hostname": "alpha.warden-demo.invalid",
+          "id": "942d098bc28c4c0d8319fa0ba42c2fea",
+          "kind": "issue",
+          "policy_sha256": "5fa3065810724cf23eb2590a63cfbd366fd5524f7e3c4c199af1429024dd8a8a",
+          "previous_serial": null,
+          "root_fingerprint": "2b2bf11f3f9d1c0f196a8a0fb4b486f2c3d962259b290f5394a54fda471bd307",
+          "schema": "warden-hackbr-p0-v1"
+        },
+        "type": "request"
+      },
+      "event_hash": "69dcbe609b6210fdd43cb5758337014bd17c135de66e4600ef78c9b7a216d948"
+    },
+    {
+      "seq": 3,
+      "prev_hash": "69dcbe609b6210fdd43cb5758337014bd17c135de66e4600ef78c9b7a216d948",
+      "payload": {
+        "approvals": [
+          {
+            "custodian_id": "custodian-a",
+            "request_sha256": "40ef0a9d1743473a370a7f32e529c8d87bcc70c1e0f9c11488a8d18aa7be8652",
+            "schema": "warden-hackbr-p0-v1",
+            "share_sha256": "f0599f0234d19fc00d11f13aa483fbcdb813addc86c1f79b2fd170ca91448960",
+            "signature": "kPB4H3IsGUS671EpVGrG7tMyqXjJmkTdBnH4Za09HeiH5/rcFvg3KNVycNDqwewxAEeEb2VBhAjAuF2flq+RAw=="
+          },
+          {
+            "custodian_id": "custodian-b",
+            "request_sha256": "40ef0a9d1743473a370a7f32e529c8d87bcc70c1e0f9c11488a8d18aa7be8652",
+            "schema": "warden-hackbr-p0-v1",
+            "share_sha256": "afd7efae414b6b014b59958970971081577d526d590232296e8726e06947066b",
+            "signature": "y9TsvkqfVzxcRCvtfycvAchPMAevZRphgG+B6NwWq+5tu2npUuw98e1+626Eoj8J7KZbjUkkmT0AwxbuNPkYCw=="
+          }
+        ],
+        "at": 1795668921,
+        "code": "insufficient_quorum",
+        "reason": "Exactly three independent approvals are required",
+        "request_id": "942d098bc28c4c0d8319fa0ba42c2fea",
+        "service_certificate_count": 0,
+        "type": "denied"
+      },
+      "event_hash": "cc200866dfa5fc19a0929b455d2768eed6670fd0fee2875e8523a9337ef6a5fb"
+    },
+    {
+      "seq": 4,
+      "prev_hash": "cc200866dfa5fc19a0929b455d2768eed6670fd0fee2875e8523a9337ef6a5fb",
+      "payload": {
+        "approvals": [
+          {
+            "custodian_id": "custodian-a",
+            "request_sha256": "40ef0a9d1743473a370a7f32e529c8d87bcc70c1e0f9c11488a8d18aa7be8652",
+            "schema": "warden-hackbr-p0-v1",
+            "share_sha256": "f0599f0234d19fc00d11f13aa483fbcdb813addc86c1f79b2fd170ca91448960",
+            "signature": "kPB4H3IsGUS671EpVGrG7tMyqXjJmkTdBnH4Za09HeiH5/rcFvg3KNVycNDqwewxAEeEb2VBhAjAuF2flq+RAw=="
+          },
+          {
+            "custodian_id": "custodian-b",
+            "request_sha256": "40ef0a9d1743473a370a7f32e529c8d87bcc70c1e0f9c11488a8d18aa7be8652",
+            "schema": "warden-hackbr-p0-v1",
+            "share_sha256": "afd7efae414b6b014b59958970971081577d526d590232296e8726e06947066b",
+            "signature": "y9TsvkqfVzxcRCvtfycvAchPMAevZRphgG+B6NwWq+5tu2npUuw98e1+626Eoj8J7KZbjUkkmT0AwxbuNPkYCw=="
+          },
+          {
+            "custodian_id": "custodian-c",
+            "request_sha256": "40ef0a9d1743473a370a7f32e529c8d87bcc70c1e0f9c11488a8d18aa7be8652",
+            "schema": "warden-hackbr-p0-v1",
+            "share_sha256": "c10d37ac7200fe909c99d5850dc95e6d96f5dd2374506c650f92f4be077bac35",
+            "signature": "5baU3lQqNl3jpUoumE/xigqQjjKd8dQnwb5qLeDOLULQ8YWffDR8nfe5uQlpE8baXzvDmxvs7rVkkY80o0dCBg=="
+          }
+        ],
+        "at": 1795668921,
+        "request": {
+          "created_at": 1795668921,
+          "csr_pem": "-----BEGIN CERTIFICATE REQUEST-----\nMIIBPDCB4gIBADBJMSMwIQYDVQQKDBpXYXJkZW4gU3ludGhldGljIFRydXN0IExh\nYjEiMCAGA1UEAwwZYWxwaGEud2FyZGVuLWRlbW8uaW52YWxpZDBZMBMGByqGSM49\nAgEGCCqGSM49AwEHA0IABLgzrUec0dXKTylJXWX3m0Jxo6OfeuvFrGL9MppwYe8F\nI15yUvX9sOJ4wPLmyJEf/k+v00SdCeEJc9DfVZfb+fSgNzA1BgkqhkiG9w0BCQ4x\nKDAmMCQGA1UdEQQdMBuCGWFscGhhLndhcmRlbi1kZW1vLmludmFsaWQwCgYIKoZI\nzj0EAwIDSQAwRgIhALZPAs9De54Lg7WeA3AnDsa8fxsX0336rAc/kUH8tZKLAiEA\nzKLcFIumM5twaFZVgfFf6INoh3Ih9UJrGfqI+nWPmyc=\n-----END CERTIFICATE REQUEST-----\n",
+          "expires_at": 1795669521,
+          "hostname": "alpha.warden-demo.invalid",
+          "id": "942d098bc28c4c0d8319fa0ba42c2fea",
+          "kind": "issue",
+          "policy_sha256": "5fa3065810724cf23eb2590a63cfbd366fd5524f7e3c4c199af1429024dd8a8a",
+          "previous_serial": null,
+          "root_fingerprint": "2b2bf11f3f9d1c0f196a8a0fb4b486f2c3d962259b290f5394a54fda471bd307",
+          "schema": "warden-hackbr-p0-v1"
+        },
+        "result": {
+          "certificate_pem": "-----BEGIN CERTIFICATE-----\nMIICZjCCAgugAwIBAgIUS8dUcLKQBzgaYJcZc9VIygibS58wCgYIKoZIzj0EAwIw\nQzEjMCEGA1UECgwaV2FyZGVuIFN5bnRoZXRpYyBUcnVzdCBMYWIxHDAaBgNVBAMM\nE1dhcmRlbiBEZW1vIFJvb3QgQ0EwHhcNMjYxMTI2MDQ1NDIxWhcNMjYxMjAzMDQ1\nNTIxWjBJMSMwIQYDVQQKDBpXYXJkZW4gU3ludGhldGljIFRydXN0IExhYjEiMCAG\nA1UEAwwZYWxwaGEud2FyZGVuLWRlbW8uaW52YWxpZDBZMBMGByqGSM49AgEGCCqG\nSM49AwEHA0IABLgzrUec0dXKTylJXWX3m0Jxo6OfeuvFrGL9MppwYe8FI15yUvX9\nsOJ4wPLmyJEf/k+v00SdCeEJc9DfVZfb+fSjgdYwgdMwDAYDVR0TAQH/BAIwADAO\nBgNVHQ8BAf8EBAMCB4AwEwYDVR0lBAwwCgYIKwYBBQUHAwEwJAYDVR0RBB0wG4IZ\nYWxwaGEud2FyZGVuLWRlbW8uaW52YWxpZDAdBgNVHQ4EFgQUo9DToN3+W/pzUURM\npfpkpWO58HowHwYDVR0jBBgwFoAUN6Rqxu/A/hhixtfsVbhN0PUEmF0wOAYUaYO/\nhKim0+ivhLOz1Zn+xKmMgi4EIEDvCp0XQ0c6Nwp/MuUpyNh7zHDB4PnBFIio0Yqn\nvoZSMAoGCCqGSM49BAMCA0kAMEYCIQCO6o6YzthYfIsLusuHFcfUkzhvTaDC6fg7\nIQRT3RE67QIhAPmHb8iafTsustLEsX+jgCvqxtCILCyUrSkuAWbys5lb\n-----END CERTIFICATE-----\n",
+          "fingerprint": "908a028b4a4d1329bb8061670013c322038861c8bd442268cc6c3f0a64eac65d",
+          "serial": "432619511887289341747629370673393879890450402207"
+        },
+        "type": "authorized"
+      },
+      "event_hash": "88da1d6b8429ddf0fb50d204972964e11981b1617a8d9f451b64d44600c6c634"
+    },
+    {
+      "seq": 5,
+      "prev_hash": "88da1d6b8429ddf0fb50d204972964e11981b1617a8d9f451b64d44600c6c634",
+      "payload": {
+        "at": 1795668921,
+        "reason": "Request is unknown or already completed",
+        "request_id": "942d098bc28c4c0d8319fa0ba42c2fea",
+        "type": "denied"
+      },
+      "event_hash": "024a215fd51e5c17fb2d4f689f3cc127d0f4b5966d8a88c0c97c56d4333821eb"
+    }
+  ],
+  "ledger_anchor": null
+}
