@@ -6,6 +6,57 @@ const metric=(name,value,detail='')=>add(el('article',undefined,'card'),el('p',n
 const step=(n,name,value,ok)=>add(el('div',undefined,'step'),el('span',n,'step-n'),add(el('div'),el('strong',name,ok?'ok':'bad'),el('div',value,'small')));
 const load=async path=>{const r=await fetch(path,{cache:'no-store'});if(!r.ok)throw new Error('Arquivo indisponível');return r.json();};
 
+async function issuanceCase(mode){
+  const status = $('case-status'), results = $('case-results');
+  results.replaceChildren();
+  status.className = 'status';
+  status.textContent = 'Verificando a emissão…';
+  const buttons = ['verify-case', 'alter-case', 'check-case-file'].map($);
+  buttons.forEach(button => { button.disabled = true; });
+  try {
+    const pins = await load('/issuance-pins.json');
+    let evidence;
+    if (mode === 'file') {
+      const file = $('case-file').files[0];
+      if (!file || file.size > 2000000) throw new Error('Selecione um JSON de até 2 MB.');
+      evidence = JSON.parse(await file.text());
+    } else {
+      evidence = await load('/issuance-case.json');
+    }
+    const {issuance} = await verifyProof(evidence, pins);
+    if (!issuance) throw new Error('Pacote sem a política de emissão desta edição.');
+    if (mode === 'alter') {
+      const changed = structuredClone(evidence);
+      changed.events[3].payload.approvals[2].signature = changed.events[3].payload.approvals[0].signature;
+      try {
+        await verifyProof(changed, pins);
+      } catch (error) {
+        status.textContent = 'APROVAÇÃO ALTERADA RECUSADA — ' + error.message;
+        status.className = 'status ok';
+        return;
+      }
+      throw new Error('O verificador aceitou uma aprovação alterada.');
+    }
+    status.textContent = 'EMISSÃO VERIFICADA — ' + issuance.hostname;
+    status.className = 'status ok';
+    results.replaceChildren(
+      step('2/3', 'Emissão negada', issuance.partial.join(' + ') + ' · ' + issuance.countAfterDenial + ' certificados registrados', true),
+      step('3/3', 'Um certificado emitido', issuance.approved.join(' + ') + ' · reutilização do pedido recusada', true),
+      add(el('div', undefined, 'card'), el('strong', 'Política e pedido'),
+        el('p', issuance.policy + ' · ID ' + issuance.requestId, 'hash'),
+        el('p', 'SHA-256 do pedido assinado e gravado na extensão X.509: ' + issuance.requestHash, 'hash'),
+        el('p', 'SHA-256 do certificado: ' + issuance.fingerprint, 'hash')));
+  } catch (error) {
+    status.textContent = 'Verificação recusada — ' + error.message;
+    status.className = 'status bad';
+  } finally {
+    buttons.forEach(button => { button.disabled = false; });
+  }
+}
+$('verify-case').onclick = () => issuanceCase('sample');
+$('alter-case').onclick = () => issuanceCase('alter');
+$('check-case-file').onclick = () => issuanceCase('file');
+
 async function cloud(){try{const wrapper=await load('/cloud-report.json');const r=wrapper.live_acceptance;const all=r.network.verified&&r.network.validators.length===4&&r.tls.verified&&r.anchor.verified&&r.anchor.receipts===4;
   $('cloud-metrics').replaceChildren(metric('Validadores',r.network.validators.length+'/4','QBFT · rede privada'),metric('Peers por nó',r.network.nodes.map(n=>n.peers).join(' / '),'Conectividade registrada'),metric('Sites privados',r.tls.sites.length,'Certificados distintos'),metric('Recibos',r.anchor.receipts+'/4',all?'Âncora confirmada no teste':'Relatório incompleto'));
   $('cloud-anchor').textContent=r.anchor.transaction_hash+' · hash de auditoria '+r.anchor.audit_head;

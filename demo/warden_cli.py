@@ -41,6 +41,7 @@ def main():
     s.add_argument('--database', required=True); s.add_argument('--output', required=True)
     s = sub.add_parser('verify', help='verify with independent root and manifest pins')
     s.add_argument('--evidence', required=True); s.add_argument('--root-pin', required=True); s.add_argument('--manifest-pin', required=True)
+    s.add_argument('--audit-head', help='independently retained history pin for a single-issuance case')
     args = p.parse_args()
     if args.command == 'create-site':
         target = Path(args.directory)
@@ -55,7 +56,11 @@ def main():
         print('Custodian release saved privately. Do not publish or log release material.'); return
     if args.command == 'verify':
         e = read_json(args.evidence)
-        print(json.dumps(verify_evidence(e['manifest'], e['events'], args.root_pin, args.manifest_pin), indent=2)); return
+        if "issuance_policy" in e["manifest"] and (set(e) != {"manifest", "events", "ledger_anchor"} or e["ledger_anchor"] is not None):
+            raise SystemExit("Invalid single-issuance evidence envelope")
+        report = verify_evidence(e["manifest"], e["events"], args.root_pin, args.manifest_pin, args.audit_head)
+        print(json.dumps(report, indent=2))
+        return
     database = Path(args.database)
     if args.command == 'initialize':
         custody_dir = Path(args.custody_dir)

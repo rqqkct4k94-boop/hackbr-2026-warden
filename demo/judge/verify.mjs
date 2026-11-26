@@ -60,17 +60,60 @@ function rawEcdsa(der){const parts=outer(der);ensure(parts.length===2,'Assinatur
 async function importEcdsa(spki){return crypto.subtle.importKey('spki',spki,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);}
 function signatureParts(der){const p=outer(der);ensure(p.length===3&&p[2].tag===3&&p[2].body[0]===0,'Estrutura assinada inválida');return {tbs:p[0],signature:rawEcdsa(p[2].body.subarray(1))};}
 function certificate(der){const signed=signatureParts(der),c=seq(signed.tbs);const i=c[0]?.tag===0xa0?1:0;ensure(c.length>=i+6,'Certificado truncado');return {...signed,serial:integer(c[i]).toString(),issuer:c[i+2].raw,subject:c[i+4].raw,spki:c[i+5].raw,extensions:c.slice(i+6).find(x=>x.tag===0xa3)};}
-function dnsNames(cert){
-  ensure(cert.extensions,'Extensões ausentes');const list=seq(children(cert.extensions)[0]);let san=null;
-  for(const extension of list){const p=seq(extension);if(p[0]?.tag===6&&hex(p[0].body)==='551d11'){ensure(!san,'SAN duplicado');const octet=p.at(-1);ensure(octet.tag===4,'SAN inválido');san=outer(octet.body).map(n=>{ensure(n.tag===0x82,'Tipo SAN fora do escopo');return new TextDecoder().decode(n.body);});}}
-  ensure(san,'SAN ausente');return san;
+function extensionValue(cert, oid){
+  ensure(cert.extensions, 'Extensões ausentes');
+  const extensions = seq(children(cert.extensions)[0]).map(seq);
+  const matches = extensions.filter(parts => parts[0].tag === 6 && hex(parts[0].body) === oid);
+  ensure(matches.length === 1, 'Extensão X.509 ausente ou duplicada');
+  const value = matches[0].at(-1);
+  ensure(value.tag === 4, 'Extensão X.509 inválida');
+  return value.body;
 }
+function dnsNames(cert){
+  return outer(extensionValue(cert, '551d11')).map(name => {
+    ensure(name.tag === 0x82, 'Tipo SAN fora do escopo');
+    return new TextDecoder().decode(name.body);
+  });
+}
+
 async function verifySignature(key,signed){ensure(await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,signed.signature,signed.tbs.raw),'Assinatura X.509 inválida');}
 
 function revokedSerials(der){const signed=signatureParts(der),p=seq(signed.tbs);let i=p[0]?.tag===2?1:0;i+=3; // signature, issuer, thisUpdate
   if(p[i]?.tag===0x17||p[i]?.tag===0x18)i++;
   if(p[i]?.tag!==0x30)return {signed,serials:new Set()};
   return {signed,serials:new Set(seq(p[i]).map(entry=>integer(seq(entry)[0]).toString()))};
+}
+
+// Additional contract for the one-service ceremony. Legacy evidence keeps its original format.
+async function checkIssuanceCase(manifest, events, pins){
+  const policy = {version:'warden-single-issuance-v1', kind:'issue', hostname:'alpha.warden-demo.invalid',
+    custodians:CUSTODIANS, required:3, authorization_seconds:600};
+  ensure(canonical(manifest.issuance_policy) === canonical(policy), 'Política de emissão desconhecida');
+  ensure(events.map(e => e.payload.type).join(',') === 'ceremony,request,denied,authorized,denied',
+    'Histórico incompleto ou autorização repetida');
+  const [, {payload:{request}}, {payload:denial}, {payload:issued}, {payload:replay}] = events;
+  const requestHash = await hashObject(request);
+  ensure(request.policy_sha256 === await hashObject(policy) && request.schema === manifest.schema &&
+    request.kind === policy.kind && request.hostname === policy.hostname && request.previous_serial === null &&
+    request.expires_at - request.created_at === policy.authorization_seconds && /^[0-9a-f]{32}$/.test(request.id),
+    'Solicitação fora da política de emissão');
+  const subset = denial.approvals;
+  ensure(denial.code === 'insufficient_quorum' && denial.request_id === request.id &&
+    denial.service_certificate_count === 0 && Array.isArray(subset) && subset.length === 2 &&
+    new Set(subset.map(a => a.custodian_id)).size === 2 &&
+    subset.every(a => issued.approvals.some(b => canonical(a) === canonical(b))) &&
+    request.created_at <= denial.at && denial.at <= issued.at && issued.at <= replay.at,
+    'Negação 2/3 inconsistente');
+  ensure(replay.request_id === request.id && replay.reason === 'Request is unknown or already completed',
+    'Recusa de reutilização inconsistente');
+  // DER value of the UUID-derived OID 2.25.297104861088328637927211693573167841582.
+  const leaf = certificate(pem(issued.result.certificate_pem, 'CERTIFICATE'));
+  ensure(hex(extensionValue(leaf, '6983bf84a8a6d3e8af84b3b3d599fec4a98c822e')) === requestHash,
+    'Certificado não contém o hash da solicitação exata');
+  ensure(pins.audit_head === events.at(-1).event_hash, 'Cabeça da auditoria exige um pin independente');
+  return {requestId:request.id, requestHash, policy:policy.version, hostname:request.hostname,
+    partial:subset.map(a => a.custodian_id), approved:issued.approvals.map(a => a.custodian_id),
+    countAfterDenial:denial.service_certificate_count, fingerprint:issued.result.fingerprint};
 }
 
 export async function verifyProof(evidence,pins){
@@ -108,6 +151,12 @@ export async function verifyProof(evidence,pins){
     }
     finished.add(req.id);authorized++;
   }
+  let issuance = null;
+  if (Object.hasOwn(m, 'issuance_policy')) {
+    ensure(Object.keys(evidence).sort().join(',') === 'events,ledger_anchor,manifest' && evidence.ledger_anchor === null,
+      'Formato do pacote de emissão inválido');
+    issuance = await checkIssuanceCase(m, evidence.events, pins);
+  }
   if(pins.audit_head)ensure(prev===pins.audit_head,'Cabeça da auditoria difere do pin');
-  return {verified:true,events:evidence.events.length,authorized,denied,head:prev,certificates:certs,revoked:revoked.size,ledgerVerified:false};
+  return {verified:true,events:evidence.events.length,authorized,denied,head:prev,certificates:certs,issuance,revoked:revoked.size,ledgerVerified:false};
 }

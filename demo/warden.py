@@ -27,8 +27,21 @@ ZERO = "0" * 64
 SCHEMA = "warden-hackbr-p0-v1"
 
 
+# Non-critical private extension under a UUID-derived OID (2.25).
+REQUEST_HASH_OID = x509.ObjectIdentifier("2.25.297104861088328637927211693573167841582")
+ISSUANCE_POLICY = {
+    "version": "warden-single-issuance-v1", "kind": "issue", "hostname": HOSTS[0],
+    "custodians": list(CUSTODIANS), "required": 3, "authorization_seconds": 600,
+}
+PUBLIC_APPROVAL_FIELDS = ("schema", "request_sha256", "custodian_id", "share_sha256", "signature")
+
+
 class PolicyError(ValueError):
     """A request failed the demo's explicit authorization policy."""
+
+
+class QuorumDenied(PolicyError):
+    """Two valid releases were recorded in the transaction that refused issuance."""
 
 
 def canonical(value):
@@ -123,9 +136,26 @@ def create_site_csr(host):
     return private_pem(key), csr.public_bytes(serialization.Encoding.PEM).decode()
 
 
+def check_issuance_policy(request, policy_hash):
+    if request.get("policy_sha256") != policy_hash:
+        raise PolicyError("Request differs from the ceremony policy")
+    if policy_hash is not None and (
+            policy_hash != digest(canonical(ISSUANCE_POLICY))
+            or request["kind"] != ISSUANCE_POLICY["kind"]
+            or request["hostname"] != ISSUANCE_POLICY["hostname"]
+            or request["expires_at"] - request["created_at"] != ISSUANCE_POLICY["authorization_seconds"]
+            or request.get("previous_serial") is not None):
+        raise PolicyError("Request outside the versioned issuance policy")
+
+
+def public_approval(release):
+    return {field: release[field] for field in PUBLIC_APPROVAL_FIELDS}
+
+
 def make_approval(package, request, now=None):
     """Run in a custodian's separate process/storage; never publish the release file."""
     now = time.time() if now is None else now
+    check_issuance_policy(request, package.get("policy_sha256"))
     if (request.get("schema") != SCHEMA or request.get("hostname") not in HOSTS or
             request.get("kind") not in ("issue", "renew", "revoke") or
             request.get("root_fingerprint") != package.get("root_fingerprint") or
@@ -157,6 +187,10 @@ def validate_signed_evidence(manifest, request, approvals):
     ids = [x.get("custodian_id") for x in approvals]
     if len(set(ids)) != 3 or set(ids) != set(CUSTODIANS):
         raise PolicyError("Three distinct registered custodians are mandatory")
+    validate_approval_signatures(manifest, request, approvals)
+
+
+def validate_approval_signatures(manifest, request, approvals):
     expected = digest(canonical(request))
     public = {p["id"]: p for p in manifest["custodians"]}
     if request.get("root_fingerprint") != manifest["root_fingerprint"]:
@@ -216,7 +250,7 @@ class Authority:
         self.db.execute("INSERT INTO events VALUES(?,?,?,?)", (seq, prev, canonical(payload).decode(), final_hash))
         return final_hash
 
-    def initialize(self):
+    def initialize(self, *, single_issuance=False):
         """Trusted one-time ceremony; separate packages must leave the authority afterward."""
         if self.db.execute("SELECT 1 FROM authority").fetchone():
             raise PolicyError("Existing authority must never be reinitialized")
@@ -241,6 +275,10 @@ class Authority:
         manifest = {"schema": SCHEMA, "root_fingerprint": root_fp,
                     "root_certificate": root.public_bytes(serialization.Encoding.PEM).decode(),
                     "policy": "three-of-three-signed-custody-release", "custodians": public}
+        if single_issuance:
+            manifest["issuance_policy"] = ISSUANCE_POLICY
+            for package in packages:
+                package["policy_sha256"] = digest(canonical(ISSUANCE_POLICY))
         with self.db:
             self.db.execute("INSERT INTO authority VALUES(1,?,?)", (canonical(manifest).decode(),
                 canonical({"nonce": b64(nonce), "ciphertext": b64(ciphertext)}).decode()))
@@ -271,10 +309,14 @@ class Authority:
                 raise PolicyError("Issuance cannot specify a prior certificate")
             elif self.db.execute("SELECT 1 FROM certificates WHERE hostname=? AND status='active'", (host,)).fetchone():
                 raise PolicyError("An active certificate exists; use the renewal workflow")
+        manifest = self.manifest()
         now = self.clock()
         req = {"schema": SCHEMA, "id": uuid.uuid4().hex, "kind": kind, "hostname": host,
                "csr_pem": csr_pem, "previous_serial": previous_serial,
-               "created_at": now, "expires_at": now + 600, "root_fingerprint": self.manifest()["root_fingerprint"]}
+               "created_at": now, "expires_at": now + 600, "root_fingerprint": manifest["root_fingerprint"]}
+        if "issuance_policy" in manifest:
+            req["policy_sha256"] = digest(canonical(manifest["issuance_policy"]))
+            check_issuance_policy(req, req["policy_sha256"])
         with self.db:
             self.db.execute("INSERT INTO requests VALUES(?,?,'pending')", (req["id"], canonical(req).decode()))
             self._append({"type": "request", "request": req, "at": now})
@@ -313,7 +355,7 @@ class Authority:
             raise PolicyError("An active certificate exists; use the renewal workflow")
         if at + timedelta(days=7) >= root.not_valid_after_utc:
             raise PolicyError("Root is too close to expiry")
-        cert = (x509.CertificateBuilder().subject_name(csr.subject).issuer_name(root.subject)
+        builder = (x509.CertificateBuilder().subject_name(csr.subject).issuer_name(root.subject)
                 .public_key(csr.public_key()).serial_number(x509.random_serial_number())
                 .not_valid_before(at - timedelta(minutes=1)).not_valid_after(at + timedelta(days=7))
                 .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
@@ -323,8 +365,11 @@ class Authority:
                 .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
                 .add_extension(x509.SubjectAlternativeName([x509.DNSName(host)]), critical=False)
                 .add_extension(x509.SubjectKeyIdentifier.from_public_key(csr.public_key()), critical=False)
-                .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(root.public_key()), critical=False)
-                .sign(key, hashes.SHA256()))
+                .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(root.public_key()), critical=False))
+        if "policy_sha256" in req:
+            binding = x509.UnrecognizedExtension(REQUEST_HASH_OID, hashlib.sha256(canonical(req)).digest())
+            builder = builder.add_extension(binding, critical=False)
+        cert = builder.sign(key, hashes.SHA256())
         serial = str(cert.serial_number)
         pem = cert.public_bytes(serialization.Encoding.PEM).decode()
         if req["kind"] == "renew":
@@ -366,9 +411,21 @@ class Authority:
             req = json.loads(row["body"])
             if not req["created_at"] <= self.clock() <= req["expires_at"]:
                 raise PolicyError("Request expired")
+            policy = self.manifest().get("issuance_policy")
+            if policy is not None:
+                check_issuance_policy(req, digest(canonical(policy)))
+                if len(releases) == 2:
+                    ids = {item["custodian_id"] for item in releases}
+                    if len(ids) != 2 or not ids.issubset(CUSTODIANS):
+                        raise PolicyError("Two distinct registered custodians expected")
+                    validate_approval_signatures(self.manifest(), req, releases)
+                    for item in releases:
+                        if digest(unb64(item["share"])) != item["share_sha256"]:
+                            raise PolicyError("Released share does not match signed commitment")
+                    raise QuorumDenied("Exactly three independent approvals are required")
             root, key = self._root_key(req, releases)
             result = self._revoke(req, root, key) if req["kind"] == "revoke" else self._issue(req, root, key)
-            public = [{k: item[k] for k in ("schema", "request_sha256", "custodian_id", "share_sha256", "signature")} for item in releases]
+            public = [public_approval(item) for item in releases]
             public.sort(key=lambda x: x["custodian_id"])
             event = {"type": "authorized", "request": req, "approvals": public,
                      "result": result, "at": self.clock()}
@@ -376,6 +433,20 @@ class Authority:
             self.db.execute("UPDATE requests SET state='completed' WHERE id=?", (request_id,))
             self.db.commit()
             return {**result, "audit_hash": event_hash}
+        except QuorumDenied as exc:
+            # Still holding the issuance write lock. This decision precedes any signing.
+            try:
+                count = self.db.execute("SELECT COUNT(*) FROM certificates WHERE hostname=?",
+                                        (req["hostname"],)).fetchone()[0]
+                self._append({"type": "denied", "request_id": request_id, "reason": str(exc),
+                              "code": "insufficient_quorum", "at": self.clock(),
+                              "approvals": [public_approval(item) for item in releases],
+                              "service_certificate_count": count})
+                self.db.commit()
+            except BaseException:
+                self.db.rollback()
+                raise
+            raise
         except (PolicyError, KeyError, TypeError, ValueError) as exc:
             self.db.rollback()
             message = str(exc) if isinstance(exc, PolicyError) else "Malformed authorization input"
@@ -397,7 +468,7 @@ class Authority:
         return {"manifest": self.manifest(), "events": self.events(), "ledger_anchor": None}
 
 
-def verify_evidence(manifest, events, trusted_root_fingerprint, trusted_manifest_sha256):
+def verify_evidence(manifest, events, trusted_root_fingerprint, trusted_manifest_sha256, trusted_audit_head=None):
     """Independent verifier: pinned root, chain hashes, signatures, lifecycle output.
 
     This is not an externally anchored ledger or protection against complete history replacement.
@@ -468,8 +539,41 @@ def verify_evidence(manifest, events, trusted_root_fingerprint, trusted_manifest
         checked += 1
     if not events:
         raise PolicyError("No ceremony evidence")
+    if "issuance_policy" in manifest:
+        verify_issuance_case(manifest, events, trusted_audit_head)
     return {"verified": True, "events": len(events), "authorized_operations": checked, "head": prev,
             "certificates": len(certificates), "revoked": len(revoked), "ledger_anchored": False}
+
+
+def verify_issuance_case(manifest, events, trusted_audit_head):
+    """Additional invariants for the pinned single-service judge ceremony."""
+    if [event["payload"]["type"] for event in events] != ["ceremony", "request", "denied", "authorized", "denied"]:
+        raise PolicyError("Incomplete or replayed issuance history")
+    if manifest["issuance_policy"] != ISSUANCE_POLICY:
+        raise PolicyError("Unsupported issuance policy")
+    req, denial, issued, replay = (event["payload"] for event in events[1:])
+    req = req["request"]
+    check_issuance_policy(req, digest(canonical(manifest["issuance_policy"])))
+    if req["schema"] != manifest["schema"] or len(req["id"]) != 32 or uuid.UUID(req["id"]).hex != req["id"]:
+        raise PolicyError("Invalid issuance request identifier or schema")
+    subset = denial.get("approvals", [])
+    if (denial.get("code") != "insufficient_quorum" or denial["request_id"] != req["id"]
+            or denial.get("service_certificate_count") != 0 or len(subset) != 2
+            or len({a["custodian_id"] for a in subset}) != 2
+            or not all(a in issued["approvals"] for a in subset)
+            or not req["created_at"] <= denial["at"] <= issued["at"] <= replay["at"]):
+        raise PolicyError("Invalid two-approval denial evidence")
+    if replay["request_id"] != req["id"] or replay["reason"] != "Request is unknown or already completed":
+        raise PolicyError("Invalid replay refusal")
+    cert = x509.load_pem_x509_certificate(issued["result"]["certificate_pem"].encode())
+    try:
+        bound_hash = cert.extensions.get_extension_for_oid(REQUEST_HASH_OID).value.value
+    except x509.ExtensionNotFound as exc:
+        raise PolicyError("Certificate missing request binding") from exc
+    if bound_hash != hashlib.sha256(canonical(req)).digest():
+        raise PolicyError("Certificate request binding mismatch")
+    if trusted_audit_head != events[-1]["event_hash"]:
+        raise PolicyError("Issuance history requires the independently retained audit head")
 
 
 class ActivityLease:
